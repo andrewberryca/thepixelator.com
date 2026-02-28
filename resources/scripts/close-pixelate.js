@@ -1,219 +1,127 @@
-/* Close Pixelate
- * http://desandro.com/resources/close-pixelate/
- * 
- * Developed by
- * - David DeSandro  http://desandro.com
- * - John Schulz  http://twitter.com/jfsiii
- * 
- * Thanks to Max Novakovic for getImageData API http://www.maxnov.com/getimagedata
- * 
- * Copyright (c) 2010
- * Licensed under MIT license
- * 
+/* Close Pixelate — modernized
+ * Original by David DeSandro & John Schulz
+ * https://github.com/desandro/close-pixelate
+ * Licensed under MIT
  */
 
-/*********************** imageForgery ************************/
+'use strict';
 
-var imageForgery = {};
+const ClosePixelate = (() => {
+  let imgData = null;
+  const PI2   = Math.PI * 2;
+  const PI1_4 = Math.PI / 4;
 
-imageForgery.hasSameOrigin = (function() {
+  /**
+   * Render pixelated shapes onto a canvas context.
+   * The first call captures pixel data from the current canvas contents;
+   * subsequent calls reuse it. Call clearImageData() when the source image changes.
+   */
+  function renderClosePixels(ctx, renderOptions, w, h) {
+    if (!imgData) {
+      imgData = ctx.getImageData(0, 0, w, h).data;
+    }
+    ctx.clearRect(0, 0, w, h);
 
-  var page = document.location,
-      protocol = page.protocol,
-      domain = document.domain,
-      port = page.port ? ':' + page.port : '',
-      sop_string = protocol + '//' + domain + port,
-      sop_regex = new RegExp('^' + sop_string),
-      http_regex = /^http(?:s*)/,
-      data_regex = /^data:/,
-      closure = function ( url )
-      {
-          var is_local = (!http_regex.test(url)) || data_regex.test(url),
-              is_same_origin = sop_regex.test(url);
+    for (let i = 0; i < renderOptions.length; i++) {
+      const opts         = renderOptions[i];
+      const res          = opts.resolution;
+      const size         = opts.size   || res;
+      const alpha        = opts.alpha  || 1;
+      const offset       = opts.offset || 0;
+      const cols         = Math.ceil(w / res) + 1;
+      const rows         = Math.ceil(h / res) + 1;
+      const halfSize     = size / 2;
+      const diamondSize  = size / Math.SQRT2;
+      const halfDiamond  = diamondSize / 2;
 
-          return is_local || is_same_origin;
-      };
+      for (let row = 0; row < rows; row++) {
+        const y      = (row - 0.5) * res + offset;
+        const pixelY = Math.max(Math.min(Math.round(y), h - 1), 0);
 
-  return closure;
-  
-})();
+        for (let col = 0; col < cols; col++) {
+          const x      = (col - 0.5) * res + offset;
+          const pixelX = Math.max(Math.min(Math.round(x), w - 1), 0);
+          const idx    = (pixelX + pixelY * w) * 4;
+          const r      = imgData[idx];
+          const g      = imgData[idx + 1];
+          const b      = imgData[idx + 2];
+          const a      = alpha * (imgData[idx + 3] / 255);
 
-imageForgery.getRemoteImageData = function ( img_url, callback )
-{
-    var page_url = document.location.href,
-        secure_root = "https://img-to-json.appspot.com/",
-        insecure_root = "http://img-to-json.maxnov.com/",
-        secure_regex = /^https:/,
-        is_secure = secure_regex.test(img_url) || secure_regex.test(page_url),
-        service_root = is_secure ? secure_root : insecure_root,
-        cb_stack_name = "cp_remote_image_callbacks",
-        cb_stack = cb_stack_name in window ? window[cb_stack_name] : window[cb_stack_name] = [],
-        cb_name = cb_stack_name +'['+ cb_stack.length +']',
-        service_url = service_root + "?url=" + escape(img_url) + "&callback=" + cb_name,
-        script = document.createElement('script');
+          ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
 
-    cb_stack.push( callback );
-    script.src = service_url;
-    document.body.appendChild(script);
-};
-
-imageForgery.forgeImage = function( img, callback ) {
-  
-  var onImageLoaded = function( event ) {
-    callback( event.target );
-  };
-
-  if ( !imageForgery.hasSameOrigin( img.src ) ) {
-    // remote
-    var onDataLoaded = function( obj ) {
-      var proxyImage = new Image();
-      proxyImage.addEventListener( 'load', onImageLoaded, false );
-      proxyImage.src = obj.data;
-    };
-    imageForgery.getRemoteImageData( img.src, onDataLoaded );
-  } else {
-    // local
-    if ( img.complete ) {
-      callback( img )
-    } else {
-
-      img.addEventListener( 'load', onImageLoaded, false ); 
+          switch (opts.shape) {
+            case 'circle':
+              ctx.beginPath();
+              ctx.arc(x, y, halfSize, 0, PI2, true);
+              ctx.fill();
+              ctx.closePath();
+              break;
+            case 'diamond':
+              ctx.save();
+              ctx.translate(x, y);
+              ctx.rotate(PI1_4);
+              ctx.fillRect(-halfDiamond, -halfDiamond, diamondSize, diamondSize);
+              ctx.restore();
+              break;
+            default: // square
+              ctx.fillRect(x - halfSize, y - halfSize, size, size);
+          }
+        }
+      }
     }
   }
-  
-};
 
+  /** Clear cached pixel data — call whenever the source image changes. */
+  function clearImageData() {
+    imgData = null;
+  }
 
-/*********************** Close Pixelate ************************/
+  /**
+   * Load an image source (URL string or File object) into a canvas element,
+   * append it to `container`, and resolve with { canvas, ctx, width, height }.
+   *
+   * URL sources require the server to send CORS headers for cross-origin images.
+   * File sources are read via FileReader and are always safe to use.
+   */
+  function loadImage(source, container) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
 
+      img.onload = () => {
+        const w      = img.naturalWidth;
+        const h      = img.naturalHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width  = w;
+        canvas.height = h;
+        canvas.id     = 'image';
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        container.innerHTML = '';
+        container.appendChild(canvas);
+        resolve({ canvas, ctx, width: w, height: h });
+      };
 
-var ClosePixelate = {
-	imgData: null,
-	PI2: Math.PI * 2,
-	PI1_4: Math.PI / 4
-};
+      img.onerror = () => reject(
+        new Error(
+          typeof source === 'string'
+            ? 'Could not load image. If using a URL, the server must allow cross-origin requests (CORS).'
+            : 'Could not read the selected file.'
+        )
+      );
 
-ClosePixelate.proxyCanvas = document.createElement('canvas');
+      if (typeof source === 'string') {
+        // Attempt cross-origin load so getImageData works
+        img.crossOrigin = 'anonymous';
+        img.src = source;
+      } else {
+        // File object — use FileReader to get a data URL (always same-origin)
+        const reader = new FileReader();
+        reader.onload  = e => { img.src = e.target.result; };
+        reader.onerror = reject;
+        reader.readAsDataURL(source);
+      }
+    });
+  }
 
-// checking for canvas support
-ClosePixelate.supportsCanvas = !!ClosePixelate.proxyCanvas.getContext &&
-  !!ClosePixelate.proxyCanvas.getContext('2d');
-
-if ( ClosePixelate.supportsCanvas ){
-  HTMLImageElement.prototype.closePixelate = function ( options ) { 
-    ClosePixelate.imageNode( this, options )
-  };
-}
-
-// takes an <img />, replaces it with <canvas />
-ClosePixelate.imageNode = function ( img, renderOptions ) {
-
-  var callback = function( forgedImage ) {
-    ClosePixelate.replaceImageNode( forgedImage, img, renderOptions );
-  };
-
-  // this method takes any image and returns it with a copy
-  // that has the same origin, thus avoiding canvas's security
-  imageForgery.forgeImage( img, callback );
-};
-
-ClosePixelate.replaceImageNode = function( img, originalNode, renderOptions ) {
-  var w = img.width,
-      h = img.height,
-      canvas = document.createElement('canvas'),
-      ctx = canvas.getContext('2d');
-
-  // render image in canvas
-  canvas.width = w;
-  canvas.height = h;
-  canvas.className = originalNode.className;
-  canvas.id = originalNode.id;
-  ctx.drawImage( img, 0, 0 );
-
-  // perform the Close pixelations
-  ClosePixelate.renderClosePixels( ctx, renderOptions, w, h );
-
-  // add canvas and remove image
-  originalNode.parentNode.replaceChild( canvas, originalNode );
-};
-
-
-var isArray = function ( o ){ return Object.prototype.toString.call( o ) === "[object Array]"; },
-	isObject = function ( o ){ return Object.prototype.toString.call( o ) === "[object Object]"; };
-
-ClosePixelate.renderClosePixels = function ( ctx, renderOptions, w, h ) {
-
-  if (ClosePixelate.imgData == null) {
-     ClosePixelate.imgData = ctx.getImageData(0, 0, w, h).data;
-	}
-		
-  ctx.clearRect( 0, 0, w, h);
-
-	for (var i=0, len = renderOptions.length; i < len; i++) {
-		var opts = renderOptions[i],
-			res = opts.resolution,
-
-			// option defaults
-			size = opts.size || res,
-			alpha = opts.alpha || 1,
-			offset = opts.offset || 0,
-			offsetX = 0,
-			offsetY = 0,
-			cols = w / res + 1,
-			rows = h / res + 1,
-			halfSize = size / 2,
-			diamondSize = size / Math.SQRT2,
-			halfDiamondSize = diamondSize / 2;
-
-//    if ( isObject( offset ) ){
-//		console.log("1");
-//      offsetX = offset.x || 0;
-//      offsetY = offset.y || 0;
-//    } else if ( isArray( offset) ){
-//		console.log("2");
-//      offsetX = offset[0] || 0;
-//      offsetY = offset[1] || 0;
-//    } else {
-      offsetX = offsetY = offset;
-//    }
-				
-	for ( var row = 0; row < rows; row++ ) {
-		var y = ( row - 0.5 ) * res + offsetY,
-			// normalize y so shapes around edges get color
-			pixelY = Math.max( Math.min( y, h-1), 0);
-
-			for (var col = 0; col < cols; col++) {
-				var x = ( col - 0.5 ) * res + offsetX,
-				// normalize y so shapes around edges get color
-				pixelX = Math.max( Math.min( x, w-1), 0),
-				pixelIndex = ( pixelX + pixelY * w ) * 4,
-				red = ClosePixelate.imgData[ pixelIndex + 0 ],
-				green = ClosePixelate.imgData[ pixelIndex + 1 ],
-				blue = ClosePixelate.imgData[ pixelIndex + 2 ],
-				pixelAlpha = alpha * (ClosePixelate.imgData[ pixelIndex + 3 ] / 255);
-
-				ctx.fillStyle = 'rgba(' + red +','+ green +','+ blue +','+ pixelAlpha + ')';
-
-				switch ( opts.shape ) {
-					case 'circle' :
-						ctx.beginPath();
-						ctx.arc ( x, y, halfSize, 0, ClosePixelate.PI2, true );
-						ctx.fill();
-						ctx.closePath();
-						break;
-					case 'diamond' :
-						ctx.save();
-						ctx.translate( x, y );
-						ctx.rotate( ClosePixelate.PI1_4 );
-						ctx.fillRect( -halfDiamondSize, -halfDiamondSize, diamondSize, diamondSize );
-						ctx.restore();
-						break;
-					default :
-						// square
-						ctx.fillRect( x - halfSize, y - halfSize, size, size );
-				} // switch
-			} // col
-		} // row
-	} // options
-
-};
+  return { renderClosePixels, clearImageData, loadImage };
+})();

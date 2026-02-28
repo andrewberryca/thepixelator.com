@@ -1,261 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="utf-8" />
-	<title>The Pixelator</title>
-	<link rel="stylesheet" href="resources/css/styles.css">
-	<link href="resources/scripts/jquery-ui-1.8.10.custom/css/custom-theme/jquery-ui-1.8.10.custom.css" rel="stylesheet" />
-	<script src="resources/scripts/modernizr.js"></script>
-	<script src="resources/scripts/jquery.js"></script>
-	<script src="resources/scripts/ahpi.imgload.js"></script>
-	<script src="resources/scripts/jquery-ui-1.8.10.custom/js/jquery-ui-1.8.10.custom.min.js"></script>
-	<script src="resources/scripts/close-pixelate.js"></script>
-	<script src="resources/scripts/pixelator.js?v=4"></script>
-    <script>$(pixelator.init);</script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Pixelator</title>
+  <link rel="stylesheet" href="resources/css/styles.css" />
 </head>
 <body>
 
-	<header>
-		<canvas id="logo" width="100" height="100"></canvas>
-		<hgroup>
-			<h1>The Pixelator</h1>
-			<h2>
-				An experiment to provide a little interaction to David DeSandro's excellent
-				<a href="http://desandro.com/resources/close-pixelate/" target="_blank">Close-Pixelate</a> library.
-			</h2>
-		</hgroup>
-		<div class="clear"></div>
-		<nav>
-			<ul>
-				<li id="link_to_image">Link to this Image</li>
-				<li id="generate_js">Generate JS</li>
-				<li id="save_image">Save Image</li>
-			</ul>
-		</nav>
-	</header>
+  <header>
+    <canvas id="logo" width="100" height="100" aria-hidden="true"></canvas>
+    <div class="header-text">
+      <h1>The Pixelator</h1>
+      <p class="tagline">
+        An experiment to provide interaction to David DeSandro's excellent
+        <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a> library.
+      </p>
+    </div>
+    <nav class="header-nav" aria-label="Actions">
+      <ul>
+        <li><button type="button" id="link-to-image" class="nav-btn link-btn">Link to this Image</button></li>
+        <li><button type="button" id="generate-js"   class="nav-btn js-btn">Generate JS</button></li>
+        <li><button type="button" id="save-image"     class="nav-btn save-btn">Save Image</button></li>
+      </ul>
+    </nav>
+  </header>
 
-	<section>
-		<div id="col1">
-			<div id="preset_styles">
-				<div>Example Styles</div>
-				<ul>
-					<li>1</li>
-					<li>2</li>
-					<li>3</li>
-					<li>4</li>
-					<li>5</li>
-					<li>6</li>
-					<li>7</li>
-					<li>8</li>
-				</ul>
-			</div>
-			<div class="clear"> </div>
-			<div id="settings">
-				<div id="setting_groups"></div>
-                <div>
-                    <a href="#" id="add_layer_link">Add Layer &raquo;</a>
-                </div>
-			</div>
-		</div>
-		<div id="col2">
+  <main>
+    <!-- ── Left column: style presets + layer controls ────────────────────── -->
+    <div id="col1">
+      <div id="preset-styles">
+        <span>Example Styles</span>
+        <ul id="preset-style-list" aria-label="Preset styles">
+          <li>1</li><li>2</li><li>3</li><li>4</li>
+          <li>5</li><li>6</li><li>7</li><li>8</li>
+        </ul>
+      </div>
 
-            <ul id="view_mode">
-                <li data-mode="original">Original Image</li>
-                <li data-mode="pixelate" class="selected">Pixelated Image</li>
-                <li id="animation" data-mode="animate">Start Animation</li>
-            </ul>
-            <div class="clear pad_small"></div>
+      <div id="settings">
+        <div id="setting-groups"></div>
+        <div class="add-layer-row">
+          <a href="#" id="add-layer-link">Add Layer &raquo;</a>
+        </div>
+      </div>
+    </div>
 
-            <div class="image_radios">
-				<input type="radio" name="ir" id="ir1" checked="checked" value="examples" />
-				<label for="ir1">Examples</label>
-			</div>
-			<div class="image_settings">
-				<select id="preset_images">
-					<optgroup label="Wildlife">
-						<option value="brown_pelican.jpg" selected>Brown Pelican</option>
-						<option value="great_blue_heron.jpg">Great Blue Heron</option>
-						<option value="coati.jpg">White-nosed coati</option>
-						<option value="hummingbird.jpg">Hummingbird</option>
-						<option value="hedgehog.jpg">Hedgehog</option>
-						<option value="grackle.jpg">Grackle</option>
-						<option value="duckling.jpg">Duckling</option>
-					</optgroup>
-					<optgroup label="Misc">
-						<option value="opensource_logo.gif">Open Source Logo</option>
-						<option value="earth.jpg">The Earth</option>
-						<option value="moon.jpg">The Moon</option>
-						<option value="beach.jpg">Beach</option>
-						<option value="checkers.gif">Checkerboard</option>
-						<option value="ferris_wheel.gif">Ferris Wheel</option>
-						<option value="flag.gif">Flag</option>
-						<option value="mountain.gif">Mountain</option>
-					</optgroup>
-				</select>
-			</div>
-			<div class="clear"></div>
-			<div class="image_radios">
-				<input type="radio" name="ir" id="ir2" value="image_url" />
-				<label for="ir2">Image URL</label>
-			</div>
-			<div class="image_settings">
-				<input type="text" id="image_url" />
-				<input type="button" value="Load" id="load_remote_image_btn" />
-			</div>
-			<div class="clear"></div>
-			<div class="vpad"></div>
+    <!-- ── Right column: image source + canvas ──────────────────────────── -->
+    <div id="col2">
+      <ul id="view-mode" role="tablist" aria-label="View mode">
+        <li role="tab" data-mode="original">Original Image</li>
+        <li role="tab" data-mode="pixelate" aria-selected="true">Pixelated Image</li>
+        <li role="tab" data-mode="animate">Start Animation</li>
+      </ul>
 
-			<!-- this is where the images are loaded. It's dynamically converted to a canvas -->
-			<div id="image_container"></div>
-		</div>
-	</section>
-	<footer>
-		<a href="https://github.com/benkeen/thepixelator.com" style="float: right; margin:-20px -40px;"><img src="resources/images/fork.gif" /></a>
-		<nav>
-			<h1>Scripts used on this site</h1>
-			<ul>
-				<li><a href="http://desandro.com/resources/close-pixelate/">Close-pixelate</a></li>
-				<li><a href="http://www.modernizr.com/">Modernizr</a></li>
-				<li><a href="http://goo.gl/">Google URL Shortener</a></li>
-				<li><a href="http://jquery.com">jQuery</a> / <a href="http://jqueryui.com">jQuery UI</a></li>
-			</ul>
-		</nav>
-		<nav>
-			<h1>Other links</h1>
-			<ul>
-				<li><a href="#" id="about">About this site</a></li>
-				<li><a href="comments.html">Comments</a></li>
-				<li><a href="https://developer.mozilla.org/en/canvas_tutorial">Canvas tutorial</a></li>
-				<li><a href="http://diveintohtml5.org/canvas.html#divingin">Dive into HTML5: Canvas</a></li>
-				<li><a href="http://www.formtools.org">Form Tools</a></li>
-			</ul>
-		</nav>
-		<nav>
-			<h1>The author</h1>
-			<ul>
-				<li><a href="http://twitter.com/#!/vancouverben">@vancouverben</a></li>
-				<li><a href="https://github.com/benkeen/thepixelator.com">github</a></li>
-			</ul>
-		</nav>
-		<div class="clear"></div>
-	</footer>
+      <!-- Examples -->
+      <div class="image-source-row">
+        <label class="radio-label">
+          <input type="radio" name="ir" id="ir1" value="examples" checked />
+          Examples
+        </label>
+        <div class="image-source-field">
+          <select id="preset-images">
+            <optgroup label="Wildlife">
+              <option value="brown_pelican.jpg" selected>Brown Pelican</option>
+              <option value="great_blue_heron.jpg">Great Blue Heron</option>
+              <option value="coati.jpg">White-nosed Coati</option>
+              <option value="hummingbird.jpg">Hummingbird</option>
+              <option value="hedgehog.jpg">Hedgehog</option>
+              <option value="grackle.jpg">Grackle</option>
+              <option value="duckling.jpg">Duckling</option>
+            </optgroup>
+            <optgroup label="Misc">
+              <option value="opensource_logo.gif">Open Source Logo</option>
+              <option value="earth.jpg">The Earth</option>
+              <option value="moon.jpg">The Moon</option>
+              <option value="beach.jpg">Beach</option>
+              <option value="checkers.gif">Checkerboard</option>
+              <option value="ferris_wheel.gif">Ferris Wheel</option>
+              <option value="flag.gif">Flag</option>
+              <option value="mountain.gif">Mountain</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
 
-	<!-- the remainder of the page contains markup for styles, dialog windows and raw markup for the JS -->
-	<span id="left_border" class="page_border"></span>
-	<span id="right_border" class="page_border"></span>
+      <!-- Image URL -->
+      <div class="image-source-row">
+        <label class="radio-label">
+          <input type="radio" name="ir" id="ir2" value="image_url" />
+          Image URL
+        </label>
+        <div class="image-source-field url-row">
+          <input type="url" id="image-url" placeholder="https://example.com/image.jpg" />
+          <button type="button" id="load-remote-btn">Load</button>
+        </div>
+      </div>
 
-	<!-- doesn't actually use jQuery templates, I'm just using it to hide the markup -->
-	<script type="text/x-jquery-tmpl" id="setting_group_template">
-	<ul class="setting_group">
-		<li>
-			<div class="delete_setting">X</div>
-			<div class="layer_num">
-				<input type="checkbox" id="enable%%ROW%%" class="enabled" checked />
-				<label class="enabled_group" for="enable%%ROW%%">Enable Layer %%ROW%%</label>
-			</div>
-			<div class="hidden row">%%ROW%%</div>
-		</li>
-		<li>
-			<label>Shape</label>
-			<div class="setting_field">
-				<select name="shape%%ROW%%" class="shape">
-                    <option value="circle" %%CIRCLE_SELECTED%%>Circle</option>
-                    <option value="square" %%SQUARE_SELECTED%%>Square</option>
-                    <option value="diamond" %%DIAMOND_SELECTED%%>Diamond</option>
-				</select>
-			</div>
-			<div class="clear"></div>
-		</li>
-		<li class="sliders">
-			<label>Spacing</label>
-			<div class="setting_field">
-				<input type="range" class="resolution animatable" min="8" max="200" step="2" value="%%RESOLUTION%%" />
-			</div>
-			<label>Offset</label>
-			<div class="setting_field">
-				<input type="range" class="offset animatable" min="0" max="100" step="1" value="%%OFFSET%%" />
-			</div>
-			<div class="clear"></div>
-		</li>
-		<li class="sliders">
-			<label>Size</label>
-			<div class="setting_field">
-				<input type="range" class="size animatable" min="2" max="200" step="1" value="%%SIZE%%" />
-			</div>
-			<label>Alpha</label>
-			<div class="setting_field">
-				<input type="range" class="alpha" min="0.001" max="1" step="0.01" value="%%ALPHA%%" />
-			</div>
-			<div class="clear"></div>
-		</li>
-	</ul>
-	</script>
+      <!-- File upload -->
+      <div class="image-source-row">
+        <label class="radio-label">
+          <input type="radio" name="ir" id="ir3" value="upload" />
+          Upload
+        </label>
+        <div class="image-source-field">
+          <input type="file" id="file-upload" accept="image/*" />
+        </div>
+      </div>
 
-	<div class="hidden dialog" id="about_content">
-		<p>
-			<i>The Pixelator</i> is really nothing more than an excuse to play around with Canvas, an HTML5 technology for
-			creating images on the fly with javascript. I'd spent a couple of evenings experimenting when a co-worker
-			(<a href="http://twitter.com/#!/estwo">@estwo</a>) sent me a link to DeSandro's amazing
-			<a href="http://desandro.com/resources/close-pixelate/" target="_blank">Close-Pixelate</a> script. Wow. So awesome. But
-			the script cried out for a UI to let people construct their own patterns dynamically, and not have to wade through code.
-			For me, the fun lies in playing with it - finding what patterns work and what don't. So all I really did was slap on a UI.
-		</p>
-		<p>
-			For me, Canvas feels like ZX Spectrum (48K) programming all over again. I get that same feeling of awesomeness as
-			I did when I was 8, seeing a few lines of abstract mathematical code transformed into something real on the screen -
-			entirely without the aid of any mind-enhancing drugs. Enjoy!
-		</p>
-		<p>
-			&#8212; <a href="http://www.benjaminkeen.com" target="_blank">Ben</a>
-		</p>
-		<canvas id="about_canvas" width="620" height="270"></canvas>
-		<textarea id="swirly_source" class="hidden"><!DOCTYPE html>
-<html>
-<head>
-  <title>A Swirly</title>
-  <script>
-  var ns = {
-    ctx:          null,
-    currInterval: null,
-    circle_size:  4,
-    count:        0,
+      <div class="spacer"></div>
+      <div id="image-container"></div>
+    </div>
+  </main>
 
-    init: function() {
-      ns.ctx = document.getElementById('canvas').getContext('2d');
-      ns.ctx.translate(225, 225);
-      ns.start();
-    },
+  <footer>
+    <a href="https://github.com/andrewberryca/thepixelator.com" class="fork-link" target="_blank" rel="noopener">
+      <img src="resources/images/fork.gif" alt="Fork on GitHub" />
+    </a>
+    <nav aria-label="Scripts">
+      <h2>Scripts used on this site</h2>
+      <ul>
+        <li><a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a></li>
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API" target="_blank" rel="noopener">Canvas API</a></li>
+      </ul>
+    </nav>
+    <nav aria-label="Links">
+      <h2>Other links</h2>
+      <ul>
+        <li><a href="#" id="about-link">About this site</a></li>
+        <li><a href="https://developer.mozilla.org/en/canvas_tutorial" target="_blank" rel="noopener">Canvas tutorial</a></li>
+        <li><a href="https://diveintohtml5.info/canvas.html" target="_blank" rel="noopener">Dive into HTML5: Canvas</a></li>
+      </ul>
+    </nav>
+  </footer>
 
-    start: function() {
-      ns.currInterval = setInterval(function() { ns.draw() }, 5);
-    },
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Dialogs — native <dialog>, no jQuery UI
+       ══════════════════════════════════════════════════════════════════════ -->
 
-    draw: function() {
-      ns.ctx.rotate(Math.PI*2 / 80);
-      ns.ctx.fillStyle = 'rgb(0, ' + Math.ceil(ns.count * 1.02) + ', ' + Math.ceil(ns.count * 1.6) + ')';
+  <dialog id="dialog-no-canvas" aria-labelledby="dlg-nc-title">
+    <h2 id="dlg-nc-title">Browser Not Supported</h2>
+    <p>Sorry — your browser doesn't support HTML5 Canvas. Please try a modern browser.</p>
+    <div class="dialog-actions">
+      <button type="button" class="dialog-close btn-primary">Close</button>
+    </div>
+  </dialog>
 
-      ns.ctx.beginPath();
-      ns.ctx.arc(0+ns.count/2, 0+ns.count/3, ns.circle_size, 0, Math.PI*2, false);
-      ns.ctx.fill();
+  <dialog id="dialog-link" aria-labelledby="dlg-link-title">
+    <h2 id="dlg-link-title">Your Image URL</h2>
+    <p>Copy this URL to share your current pixelation settings.</p>
+    <input type="text" id="share-url" readonly />
+    <div class="dialog-actions">
+      <button type="button" id="copy-url-btn" class="btn-primary">Copy to Clipboard</button>
+      <button type="button" class="dialog-close">Close</button>
+    </div>
+  </dialog>
 
-      ns.count += .2;
-      ns.circle_size -= 0.002;
+  <dialog id="dialog-generate-js" aria-labelledby="dlg-js-title">
+    <h2 id="dlg-js-title">Close-Pixelate JS</h2>
+    <p>
+      Paste this into your own page with the
+      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a>
+      library to recreate your current design.
+    </p>
+    <textarea id="js-output" readonly></textarea>
+    <div class="dialog-actions">
+      <button type="button" class="dialog-close btn-primary">Close</button>
+    </div>
+  </dialog>
 
-      // once the circle is small enough, clear the interval
-      if (ns.circle_size <= 0.01) {
-        clearInterval(ns.currInterval);
-      }
-    }
-  }
-  </script>
-</head>
-<body onload="ns.init()">
-  <canvas id="canvas" width="450" height="450"></canvas>
-</body>
-</html></textarea>
+  <dialog id="dialog-error" aria-labelledby="dlg-err-title">
+    <h2 id="dlg-err-title">Oops!</h2>
+    <p id="error-message"></p>
+    <div class="dialog-actions">
+      <button type="button" class="dialog-close btn-primary">Close</button>
+    </div>
+  </dialog>
 
-		<span id="toggle_about_source">View Swirly Source</span>
-	</div>
+  <dialog id="dialog-about" aria-labelledby="dlg-about-title">
+    <h2 id="dlg-about-title">About this site</h2>
+    <p>
+      <em>The Pixelator</em> is really nothing more than an excuse to play around with Canvas,
+      an HTML5 technology for creating images on the fly with JavaScript. A co-worker sent me a link
+      to DeSandro's amazing
+      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a>
+      script — so all I really did was slap on a UI.
+    </p>
+    <p>&#8212; <a href="https://www.benjaminkeen.com" target="_blank" rel="noopener">Ben</a></p>
+    <canvas id="about-canvas" width="620" height="270"></canvas>
+    <button type="button" id="toggle-about-source" class="toggle-btn">View Swirly Source</button>
+    <textarea id="swirly-source" class="hidden" readonly></textarea>
+    <div class="dialog-actions">
+      <button type="button" class="dialog-close btn-primary">Close</button>
+    </div>
+  </dialog>
 
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Layer template — cloned by pixelator.js for each new pixel layer
+       ══════════════════════════════════════════════════════════════════════ -->
+  <template id="layer-template">
+    <div class="setting-group">
+      <div class="layer-header" draggable="true" title="Drag to reorder">
+        <div class="layer-num">
+          <input type="checkbox" class="enabled" checked />
+          <label class="enabled-label">Enable Layer</label>
+        </div>
+        <button type="button" class="delete-setting" aria-label="Remove layer">&times;</button>
+      </div>
+      <div class="layer-controls">
+        <div class="control-row">
+          <label>Shape</label>
+          <select class="shape">
+            <option value="circle">Circle</option>
+            <option value="square">Square</option>
+            <option value="diamond">Diamond</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Spacing</label>
+          <input type="range" class="resolution animatable" min="8" max="200" step="2" value="32" />
+          <span class="range-val">32</span>
+        </div>
+        <div class="control-row">
+          <label>Offset</label>
+          <input type="range" class="offset animatable" min="0" max="100" step="1" value="0" />
+          <span class="range-val">0</span>
+        </div>
+        <div class="control-row">
+          <label>Size</label>
+          <input type="range" class="size animatable" min="2" max="200" step="1" value="30" />
+          <span class="range-val">30</span>
+        </div>
+        <div class="control-row">
+          <label>Alpha</label>
+          <input type="range" class="alpha" min="0.001" max="1" step="0.01" value="0.5" />
+          <span class="range-val">0.5</span>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="resources/scripts/close-pixelate.js"></script>
+  <script src="resources/scripts/pixelator.js"></script>
 </body>
 </html>

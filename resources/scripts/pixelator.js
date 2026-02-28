@@ -1,809 +1,677 @@
-/*global $:false,ClosePixelate:false,Modernizr:false,console:false*/
 /**
- * pixelator.js
+ * pixelator.js — vanilla ES6 rewrite
  *
- * Adds a simple UI to David DeSandro's Close-Pixelate script:
- * http://desandro.com/resources/close-pixelate/
+ * Adds an interactive UI to the Close-Pixelate canvas library.
+ * No external dependencies — works with any modern browser.
  *
- * @author  Ben Keen - @vancouverben
- * @version 1.1.0
+ * Original concept by Ben Keen @vancouverben
+ * Modernized: jQuery/jQuery UI/Modernizr removed; native <dialog>,
+ * HTML5 drag-and-drop, FileReader, Clipboard API, requestAnimationFrame.
  */
 
-var pixelator = {
-	image_id:     "image",
-	image_url:    null,
-	canvas:       null,
-	ctx:          null,
-	num_settings: 0,
-	root_url:     "http://thepixelator.com",
-	curr_view_mode: null,
-	save_image_dialog:    $('<div class="dialog" />'),
-	generate_link_dialog: $('<div class="dialog" />'),
-	generate_js_dialog:   $('<div class="dialog" />'),
-	no_canvas_dialog:     $('<div class="dialog" />'),
-
-	// for animation
-	animationCounter: null,
-	animationInterval: null,
-	sliderAnimationData: [],
-
-	/**
-	 * Our main init function, called by the pixelator homepage.
-	 */
-	init: function() {
-		"use strict";
-
-		logo_ns.init();
-		pixelator.check_no_canvas();
-		pixelator.assign_event_handlers();
-		pixelator.curr_view_mode = $("#view_mode li.selected").data("mode");
-
-		// here, the user's been linked to someone's custom generated image
-		var custom_image = pixelator._get_param_by_name("image");
-		if (custom_image !== "") {
-			pixelator.decode_url();
-		} else {
-			// load the default preset by default
-			pixelator.load_preset({ preset_num: 1 });
-
-			// either load a custom image or the default example image
-			custom_image = pixelator._get_param_by_name("url");
-			if (custom_image !== "") {
-				$("#image_url").val(custom_image);
-				pixelator.load_image(custom_image);
-			} else {
-				pixelator.load_image();
-			}
-		}
-	},
-
-	assign_event_handlers: function() {
-		"use strict";
-
-		$("#setting_groups").sortable({
-			axis:	"y",
-			update: function() {
-				pixelator.resort_layers();
-				pixelator.repixelate();
-			}
-		});
-		$("#preset_styles").on("click", "li", function() {
-			pixelator.load_preset({ preset_num: $(this).text(), repixelate: true });
-		});
-		$("#preset_images").on("change", function() { $("#ir1").attr("checked", "checked"); pixelator.load_image(); });
-		$("#settings").on("click", ".delete_setting", pixelator.delete_setting);
-		$("#settings").on("change", pixelator.repixelate);
-		$("#image_url").on("keyup", function() { $("#ir2").attr("checked", "checked"); });
-		$("#load_remote_image_btn").on("click", pixelator.load_remote_image);
-
-		// stuff relating to the About dialog
-		$("#about").on("click", pixelator.about);
-		$("#toggle_about_source").on("click", pixelator.toggle_about_source);
-
-		// top buttons
-		$("#link_to_image").on("click", pixelator.generate_link);
-		$("#generate_js").on("click", pixelator.generate_js);
-		$("#save_image").on("click", pixelator.save_image);
-		$("#view_mode").on("click", "li", pixelator.change_view_mode);
-		$("#add_layer_link").on("click", function() { pixelator.add_setting({ repixelate: true }); return false; });
-	},
-
-	check_no_canvas: function() {
-        "use strict";
-		if (!Modernizr.canvas) {
-			$(pixelator.no_canvas_dialog).html("<p>Sorry! Your browser doesn't support the HTML5 Canvas tag. This website will not work for you.</p>" +
-				"<p>Try again in a more modern browser.</p>").dialog({
-				title: "Too bad...",
-				modal: true,
-				minWidth: 400,
-				buttons: {
-					"Close": function() {
-						$(this).dialog("close");
-					}
-				}
-			});
-		}
-	},
-
-	change_view_mode: function(e) {
-		"use strict";
-		var newMode = $(e.target).data("mode");
-		if (newMode === pixelator.curr_view_mode) {
-			return;
-		}
-
-		$("#view_mode>li.selected").removeClass("selected");
-		$(e.target).addClass("selected");
-		pixelator.curr_view_mode = newMode;
-
-		// now for the juicy part
-		var custom_image_url = $("#image_url").val();
-		switch (newMode) {
-			case "original":
-				if (custom_image_url !== "") {
-					pixelator.load_image(custom_image_url);
-				} else {
-					pixelator.load_image();
-				}
-				pixelator.canvas = null;
-				break;
-			case "pixelate":
-				if (custom_image_url !== "") {
-					pixelator.load_image(custom_image_url);
-				} else {
-					pixelator.load_image();
-				}
-				break;
-			case "animate":
-				pixelator.start_animation();
-				break;
-		}
-	},
-
-	load_url: function(image) {
-        "use strict";
-		pixelator.load_image($("#image_url").val());
-	},
-
-	load_remote_image: function() {
-        "use strict";
-		var url = $("#image_url").val();
-		if ($.trim(url) === "") {
-			return;
-		}
-		$.ajax({
-			method: "GET",
-			data: { url: url },
-			url: "code/get_remote_image.php",
-			dataType: "JSON",
-			success: function(response) {
-				if (response.success) {
-					pixelator.load_image("remote/" + response.message);
-				} else {
-					$("<div></div>").html(response.message).dialog({
-						title: "Oops!",
-						width: 400,
-						modal: true,
-						buttons: {
-							"Close": function() {
-								$(this).dialog("close");
-							}
-						}
-					});
-				}
-			}
-		});
-	},
-
-	/**
-	 * Called anytime anything changes.
-	 */
-	repixelate: function() {
-        "use strict";
-
-		if (pixelator.curr_view_mode === "original") {
-			return;
-		}
-
-		if (pixelator.canvas === null) {
-			pixelator.canvas = $("#image")[0];
-			pixelator.ctx    = pixelator.canvas.getContext('2d');
-			pixelator.canvas_width  = parseInt($(pixelator.canvas).attr("width"), 10);
-			pixelator.canvas_height = parseInt($(pixelator.canvas).attr("height"), 10);
-		}
-
-		ClosePixelate.renderClosePixels(pixelator.ctx, pixelator.get_settings(), pixelator.canvas_width, pixelator.canvas_height);
-	},
-
-	get_settings: function() {
-        "use strict";
-		var settings = [];
-		$("#settings .setting_group").each(function() {
-			if (!$(this).find(".enabled").attr("checked")) {
-				return;
-			}
-			settings.push({
-				shape:      $(this).find(".shape").val(),
-				resolution: parseInt($(this).find(".resolution").val(), 10),
-				offset:     parseInt($(this).find(".offset").val(), 10),
-				size:       parseInt($(this).find(".size").val(), 10),
-				alpha:      parseFloat($(this).find(".alpha").val(), 10)
-			});
-		});
-
-		return settings;
-	},
-
-	add_setting: function(default_settings) {
-        "use strict";
-		var data = $.extend({
-			shape:            "circle",
-			circle_selected:  "",
-			square_selected:  "",
-			diamond_selected: "",
-			resolution:       32,
-			offset:           0,
-			size:             30,
-			alpha:            0.5,
-			repixelate:       false,
-			row:              ++pixelator.num_settings
-		}, default_settings);
-
-		// yuck!
-		switch (data.shape) {
-			case "circle":
-				data.circle_selected = "selected";
-				break;
-			case "diamond":
-				data.diamond_selected = "selected";
-				break;
-			case "square":
-				data.square_selected = "selected";
-				break;
-		}
-
-		var new_setting_html = $("#setting_group_template").html();
-		$.each(data, function(key, value) {
-			var curr_key = new RegExp("%%" + key.toUpperCase() + "%%", "g");
-			new_setting_html = new_setting_html.replace(curr_key, value);
-		});
-
-		$("#setting_groups").append(new_setting_html);
-		pixelator.resort_layers();
-
-		if (data.repixelate) {
-			pixelator.repixelate();
-		}
-
-		// if there's no native support for the range element, offer the jQuery slider
-		if (!Modernizr.inputtypes.range){
-			$("input[type=range]").each(function() {
-				if ($(this).nextAll(".slider").length) {
-					return;
-				}
-				var range      = $(this);
-				var slider_div = $("<div class=\"slider\" />");
-				slider_div.width(range.width());
-				range.after(slider_div.slider({
-					min:   parseFloat(range.attr("min")),
-					max:   parseFloat(range.attr("max")),
-					value: parseFloat(range.val()),
-					step:  parseFloat(range.attr("step")),
-					slide: function(evt, ui) { range.val(ui.value); pixelator.repixelate(); },
-					change: function(evt, ui) { range.val(ui.value); pixelator.repixelate(); }
-				}));
-			}).hide();
-		}
-
-		return false;
-	},
-
-	delete_setting: function() {
-        "use strict";
-		$(this).closest(".setting_group").remove();
-		pixelator.resort_layers();
-		pixelator.repixelate();
-	},
-
-	// called whenever a layer is added, removed or re-sorted. It just updates the visual
-	// order "Layer X" of the row
-	resort_layers: function() {
-        "use strict";
-		var curr_row = 1;
-		$(".setting_group").each(function() {
-			$(this).find(".enabled_group").html("Enable Layer " + curr_row);
-			$(this).find(".row").html(curr_row);
-			curr_row++;
-		});
-	},
-
-	// this serializes the current settings and shortens the URL with google URL shortener
-	generate_link: function() {
-        "use strict";
-		var settings = pixelator.get_settings();
-		var serialized_settings = [];
-		for (var i=0, j=settings.length; i<j; i++) {
-			serialized_settings.push("layers=shape:" + settings[i].shape + ",size:" + settings[i].size + "," +
-				"resolution:" + settings[i].resolution + ",alpha:" + settings[i].alpha + ",offset:" + settings[i].offset);
-		}
-
-		var settings_str = serialized_settings.join("|");
-		var image_type   = $("input[name=ir]:checked").val();
-		var image        = "";
-		if (image_type === "examples") {
-			image = $("#preset_images").val();
-		} else {
-			image = $("#image_url").val();
-		}
-		var current_url = pixelator.root_url + "?image_type=" + image_type + "&image=" + image + "&" + settings_str;
-
-		$(pixelator.generate_link_dialog).html("<div class=\"loading\"></div>").dialog({
-			title:    "Your Image URL",
-			modal:    true,
-			minWidth: 400,
-			open: function() {
-				$.ajax({
-					type:     "POST",
-					url:      "../code/get_short_url.php",
-					dataType: "json",
-					data:     { url: current_url },
-					success: function(response) {
-						$(pixelator.generate_link_dialog).html('<p>You can use this URL to link to your image.</p><input type="text" id="short_url" value="' + response.id + '" />');
-						$("#short_url").select();
-					},
-					// incomplete
-					error: function(a, b, c) { }
-				});
-			},
-			buttons: {
-				"Close": function() {
-					$(this).dialog("close");
-				}
-			}
-		});
-
-		return false;
-	},
-
-	// zero error checking on this
-	decode_url: function() {
-        "use strict";
-		var image_type   = pixelator._get_param_by_name("image_type");
-		var custom_image = pixelator._get_param_by_name("image");
-		if (image_type === "examples") {
-			$("#ir1").attr("checked", "checked");
-			$("#preset_images").val(custom_image);
-		} else {
-			$("#ir2").attr("checked", "checked");
-			$("#image_url").val(custom_image);
-		}
-
-		var layers_str = pixelator._get_param_by_name("layers");
-		var layers = layers_str.split("|");
-
-		for (var i=0, j=layers.length; i<j; i++) {
-			var pairs = layers[i].split(",");
-			var curr_setting = {};
-			for (var m=0; m<pairs.length; m++) {
-				var key_val = pairs[m].split(":");
-
-				switch(key_val[0]) {
-					case "shape":
-						curr_setting.shape = key_val[1];
-						break;
-					case "size":
-						curr_setting.size = parseInt(key_val[1], 10);
-						break;
-					case "resolution":
-						curr_setting.resolution = parseInt(key_val[1], 10);
-						break;
-					case "offset":
-						curr_setting.offset = parseInt(key_val[1], 10);
-						break;
-					case "alpha":
-						curr_setting.alpha = parseFloat(key_val[1], 10);
-						break;
-				}
-			}
-
-			pixelator.add_setting(curr_setting);
-		}
-
-		if (image_type === "examples") {
-			pixelator.load_image();
-		} else {
-			pixelator.load_image(custom_image);
-		}
-	},
-
-	generate_js: function() {
-        "use strict";
-		var settings = pixelator.get_settings();
-
-		var rows = [];
-		for (var i=0; i<settings.length; i++) {
-			rows.push("\t{ shape: '" + settings[i].shape + "', resolution: " + settings[i].resolution +
-						", size: " + settings[i].size + ", offset: " + settings[i].offset + ", alpha: " + settings[i].alpha + " }");
-		}
-		var js = "[\n" + rows.join(",\n") + "\n]";
-		var content = "<p>This option generates the javascript needed to recreate your current design. For more information on how to use it, download the " +
-					"<a href=\"https://github.com/desandro/close-pixelate\" target=\"blank\">Close-Pixelate</a> library from github.</p>" +
-					"<textarea>" + js + "</textarea>";
-		$(pixelator.generate_js_dialog).html(content).dialog({
-			title:   "Close-Pixelate JS",
-			minWidth: 500,
-			modal:    true,
-			buttons: {
-				"Close": function() {
-					$(this).dialog("close");
-				}
-			}
-		});
-
-		return false;
-	},
-
-	load_preset: function(params) {
-        "use strict";
-
-		var settings = $.extend({
-			preset_num: 1,
-			repixelate: false
-		}, params);
-		var num = parseInt(settings.preset_num, 10);
-
-		$("#setting_groups").html("");
-		pixelator.num_settings = 0;
-
-		var pixelateSettings = [];
-		switch (num) {
-			case 1:
-				pixelateSettings = [
-					{ shape: 'diamond', resolution: 98, size: 200, offset: 0, alpha: 1 },
-					{ shape: 'circle', resolution: 20, size: 19, offset: 0, alpha: 1 }
-				];
-				break;
-			case 2:
-				pixelateSettings = [
-					{ shape: 'diamond', resolution: 14, size: 27, offset: 15, alpha: 0.991 },
-					{ shape: 'circle', resolution: 50, size: 48, offset: 0, alpha: 0.651 },
-					{ shape: 'circle', resolution: 50, size: 23, offset: 8, alpha: 0.5 },
-					{ shape: 'circle', resolution: 50, size: 11, offset: 8, alpha: 0.441 }
-				];
-				break;
-			case 3:
-				pixelateSettings = [
-					{ shape: 'diamond', resolution: 200, size: 10, offset: 5, alpha: 0.8 },
-					{ shape: 'diamond', resolution: 70, size: 80, offset: 15, alpha: 0.1 },
-					{ shape: 'diamond', resolution: 112, size: 40, offset: 15, alpha: 0.3 },
-					{ shape: 'diamond', resolution: 50, size: 20, offset: 10, alpha: 0.3 },
-					{ shape: 'diamond', resolution: 32, size: 103, offset: 0, alpha: 0.041 }
-				];
-				break;
-			case 4:
-				pixelateSettings = [
-					{ shape: 'circle', resolution: 32, size: 180, offset: 0, alpha: 0.241 },
-					{ shape: 'diamond', resolution: 8, size: 10, offset: 0, alpha: 0.391 },
-					{ shape: 'circle', resolution: 52, size: 30, offset: 0, alpha: 0.261 },
-					{ shape: 'circle', resolution: 40, size: 15, offset: 0, alpha: 0.471 }
-				];
-				break;
-			case 5:
-				pixelateSettings = [
-					{ shape: "square", resolution: 32, offset: 0, size: 4, alpha: 1 },
-					{ shape: "square", resolution: 32, offset: 0, size: 30, alpha: 0.5 },
-					{ shape: "diamond", resolution: 32, offset: 0, size: 90, alpha: 0.1 }
-				];
-				break;
-			case 6:
-				pixelateSettings = [
-					{ shape: 'circle', resolution: 8, size: 50, offset: 0, alpha: 0.741 },
-					{ shape: 'diamond', resolution: 10, size: 13, offset: 13, alpha: 0.611 },
-					{ shape: 'circle', resolution: 62, size: 73, offset: 0, alpha: 0.301 }
-				];
-				break;
-			case 7:
-				pixelateSettings = [
-					{ shape: 'square', resolution: 86, size: 83, offset: 0, alpha: 0.001 },
-					{ shape: 'diamond', resolution: 200, size: 200, offset: 0, alpha: 0.161 },
-					{ shape: 'circle', resolution: 8, size: 6, offset: 8, alpha: 1 }
-				];
-				break;
-			case 8:
-				pixelateSettings = [
-					{ shape: 'diamond', resolution: 32, size: 28, offset: 0, alpha: 0.501 },
-					{ shape: 'diamond', resolution: 194, size: 194, offset: 100, alpha: 0.551 },
-					{ shape: 'diamond', resolution: 32, size: 14, offset: 0, alpha: 0.5 },
-					{ shape: 'circle', resolution: 32, size: 20, offset: 16, alpha: 0.821 },
-					{ shape: 'circle', resolution: 32, size: 7, offset: 0, alpha: 1 }
-				];
-				break;
-		}
-
-
-		// display the preset settings
-		for (var i=0, j=pixelateSettings.length; i<j; i++) {
-			pixelator.add_setting(pixelateSettings[i]);
-		}
-
-		// update the selected preset style
-		$("#preset_styles li").removeClass("selected");
-		$("#preset_styles li:nth-child(" + num + ")").addClass("selected");
-
-		// render the image
-		if (settings.repixelate === true) {
-			ClosePixelate.renderClosePixels(pixelator.ctx, pixelateSettings, pixelator.canvas_width, pixelator.canvas_height);
-		}
-	},
-
-
-	/**
-	 * Called on page load and whenever someone selects one of the example images. It recreates the canvas with the current
-	 * preset / custom settings. This ties to pixelator.image_loaded. That function fires when the image has actually been
-	 * loaded in the page and is ready to mess around with.
-	 */
-	load_image: function(custom_image_url) {
-        "use strict";
-		var image = "example_images/" + $("#preset_images").val();
-		if (custom_image_url !== undefined) {
-			image = custom_image_url;
-		}
-		$("#image_container").html('<img id="image" />');
-
-		if (pixelator.curr_view_mode === "pixelate") {
-			$("#image").bind("load", function() {
-				$Q.queue.push([
-					function() {
-						ClosePixelate.imgData = null;
-						pixelator.canvas      = null;
-						document.getElementById(pixelator.image_id).closePixelate(pixelator.get_settings());
-					},
-					function() {
-						var ready = false;
-						if ($("canvas#image").length) {
-							pixelator.canvas = $("#image")[0];
-							pixelator.ctx    = pixelator.canvas.getContext("2d");
-							pixelator.canvas_width  = parseInt($(pixelator.canvas).attr("width"), 10);
-							pixelator.canvas_height = parseInt($(pixelator.canvas).attr("height"), 10);
-							ready = true;
-						}
-						return ready;
-					}
-				]);
-
-				$Q.run();
-			});
-		}
-
-		$("#image_container img").attr("src", image);
-	},
-
-	save_image: function() {
-        "use strict";
-		$(pixelator.save_image_dialog).html("<p>Please wait while we generate your image. You will prompted to download the .png.</p>" +
-			"<p>Note: images will be automatically delected from our server after 24 hours.</p><div class=\"loading\"></div>").dialog({
-			title:    "Saving Image",
-			modal:    true,
-			minWidth: 400,
-			open: function() {
-				var str_dataURI = pixelator.canvas.toDataURL();
-				var dialog = this;
-				$(dialog).find(".loading").show();
-				$.ajax({
-					type:     "POST",
-					url:      "../code/save_image.php",
-					dataType: "json",
-					data:     { data: str_dataURI },
-					success: function(response) {
-						$(dialog).find(".loading").hide();
-						window.open("../code/prompt_image_download.php?filename=" + response.filename);
-					}
-				});
-			},
-			buttons: {
-				"Close": function() {
-					$(this).dialog("close");
-				}
-			}
-		});
-
-		return false;
-	},
-
-    start_animation: function() {
-        "use strict";
-		var rangeSliders = $("input.animatable");
-
-		// randomly assign a speed and a direction to each slider
-		pixelator.sliderAnimationData = [];
-		for (var i=0; i<rangeSliders.length; i++) {
-			var randomSpeed = Math.floor(Math.random() * (50 - 20 + 1)) + 20; // speeds: 20-50 (20 is fastest)
-			var direction   = (Math.floor(Math.random() * 2)) ? "up" : "down";
-
-			var el = rangeSliders[i];
-			pixelator.sliderAnimationData.push({
-				el: el,
-				speed: randomSpeed,
-				direction: direction,
-				value: el.value,
-				min: el.min,
-				max: el.max
-			});
-		}
-
-		// update the animation button
-
-		// now start animating
-
-		console.profile();
-
-		var numSliders = pixelator.sliderAnimationData.length;
-		var sliders = pixelator.sliderAnimationData;
-
-		pixelator.animationCounter = 1;
-		pixelator.animationInterval = setInterval(function() {
-
-			if (pixelator.animationCounter === 200) {
-				clearInterval(pixelator.animationInterval);
-				console.profileEnd();
-			}
-
-			for (var i=0; i<numSliders; i++) {
-				var currSliderData = sliders[i];
-				if (pixelator.animationCounter % currSliderData.speed === 0) {
-					if (currSliderData.direction === "up") {
-						var nextVal = ++currSliderData.value;
-						if (currSliderData.value >= currSliderData.max) {
-							currSliderData.direction = "down";
-							currSliderData.value = currSliderData.max - 1;
-							nextVal = currSliderData.value;
-						}
-						currSliderData.el.value = nextVal;
-					} else {
-						var nextVal = --currSliderData.value;
-						if (currSliderData.value <= currSliderData.min) {
-							currSliderData.direction = "up";
-							currSliderData.value = currSliderData.min + 1;
-							nextVal = currSliderData.value;
-						}
-						currSliderData.el.value = nextVal;
-					}
-				}
-			}
-			pixelator.repixelate();
-			pixelator.animationCounter++;
-		}, 10);
-    },
-
-	stop_animation: function() {
-		"use strict";
-		if (pixelator.animationCounter !== null) {
-			clearInterval(pixelator.animationCounter);
-		}
-	},
-
-	_get_param_by_name: function(name) {
-        "use strict";
-		name = name.replace(/[\[]/,"\\\[").replace(/[\]]/,"\\\]");
-		var regexS = "[\\?&]"+name+"=([^&#]*)";
-		var regex = new RegExp(regexS);
-		var results = regex.exec(window.location.href);
-		if (results === null) {
-			return "";
-		} else {
-			return decodeURIComponent(results[1].replace(/\+/g, " "));
-		}
-	},
-
-	about: function() {
-        "use strict";
-
-		$("#about_content").dialog({
-			title:   "About this site",
-			minWidth: 650,
-			modal:    true,
-			open: function() {
-				ns.init();
-			},
-			buttons: {
-				"Close": function() {
-					$(this).dialog("close");
-				}
-			}
-		});
-		return false;
-	},
-
-	toggle_about_source: function() {
-        "use strict";
-		if ($("#swirly_source").css("display") === "none") {
-			$("#swirly_source").show();
-			$("#about_canvas").hide();
-			$("#toggle_about_source").html("Back to Swirly");
-		} else {
-			$("#swirly_source").hide();
-			$("#about_canvas").show();
-			$("#toggle_about_source").html("Show Swirly Source");
-		}
-		return false;
-	}
+'use strict';
+
+// ── Logo canvas animation ────────────────────────────────────────────────────
+
+const logoNS = {
+  ctx:        null,
+  count:      0,
+  circleSize: 2.6,
+
+  init() {
+    this.ctx = document.getElementById('logo').getContext('2d');
+    this.ctx.translate(50, 50);
+    this.draw();
+  },
+
+  draw() {
+    const { ctx } = this;
+    ctx.rotate(Math.PI * 2 / 50);
+    ctx.fillStyle = `rgb(0,${Math.ceil(this.count * 2)},${Math.ceil(this.count * 5)})`;
+    ctx.beginPath();
+    ctx.arc(this.count / 2, this.count / 3, this.circleSize, 0, Math.PI * 2);
+    ctx.fill();
+    this.count      += 0.2;
+    this.circleSize -= 0.0055;
+    if (this.circleSize >= 0.01) requestAnimationFrame(() => this.draw());
+  }
 };
 
-var ns = {
-	ctx:          null,
-	currInterval: null,
-	circle_size:  4,
-	count:        0,
+// ── Swirly animation (About dialog) ─────────────────────────────────────────
 
-	init: function() {
-        "use strict";
-		ns.ctx = document.getElementById('about_canvas').getContext('2d');
-		ns.ctx.translate(310, 135);
-		ns.start();
-	},
+const swirlyNS = {
+  ctx:        null,
+  count:      0,
+  circleSize: 4,
+  interval:   null,
 
-	start: function() {
-        "use strict";
-		ns.currInterval = setInterval(function() { ns.draw(); }, 5);
-	},
+  init() {
+    const canvas = document.getElementById('about-canvas');
+    if (!canvas) return;
+    this.ctx        = canvas.getContext('2d');
+    this.count      = 0;
+    this.circleSize = 4;
+    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.ctx.setTransform(1, 0, 0, 1, 310, 135);
+    clearInterval(this.interval);
+    this.interval = setInterval(() => this.draw(), 5);
+  },
 
-	draw: function() {
-        "use strict";
-		ns.ctx.rotate(Math.PI*2 / 80);
-		ns.ctx.fillStyle = 'rgb(0, ' + Math.ceil(ns.count * 1.02) + ', ' + Math.ceil(ns.count * 1.6) + ')';
-
-		ns.ctx.beginPath();
-		ns.ctx.arc(0+ns.count/2, 0+ns.count/3, ns.circle_size, 0, Math.PI*2, false);
-		ns.ctx.fill();
-
-		ns.count += 0.2;
-		ns.circle_size -= 0.003;
-
-		// once the circle is small enough, clear the interval
-		if (ns.circle_size <= 0.01) {
-			clearInterval(ns.currInterval);
-		}
-	}
+  draw() {
+    const { ctx } = this;
+    ctx.rotate(Math.PI * 2 / 80);
+    ctx.fillStyle = `rgb(0,${Math.ceil(this.count * 1.02)},${Math.ceil(this.count * 1.6)})`;
+    ctx.beginPath();
+    ctx.arc(this.count / 2, this.count / 3, this.circleSize, 0, Math.PI * 2);
+    ctx.fill();
+    this.count      += 0.2;
+    this.circleSize -= 0.003;
+    if (this.circleSize <= 0.01) clearInterval(this.interval);
+  }
 };
 
+// ── Preset layer configurations ───────────────────────────────────────────────
 
-var logo_ns = {
-	ctx:          null,
-	currInterval: null,
-	circle_size:  2.6,
-	count:        0,
-
-	init: function() {
-        "use strict";
-		logo_ns.ctx = document.getElementById('logo').getContext('2d');
-		logo_ns.ctx.translate(50, 50);
-		logo_ns.draw();
-	},
-
-	draw: function() {
-        "use strict";
-		logo_ns.ctx.rotate(Math.PI*2 / 50);
-		logo_ns.ctx.fillStyle = 'rgb(0, ' + Math.ceil(logo_ns.count * 2) + ', ' + Math.ceil(logo_ns.count * 5) + ')';
-
-		logo_ns.ctx.beginPath();
-		logo_ns.ctx.arc(0+logo_ns.count/2, 0+logo_ns.count/3, logo_ns.circle_size, 0, Math.PI*2, false);
-		logo_ns.ctx.fill();
-
-		logo_ns.count += 0.2;
-		logo_ns.circle_size -= 0.0055;
-
-		// once the circle is small enough, clear the interval
-		if (logo_ns.circle_size >= 0.01) {
-			logo_ns.draw();
-		}
-	}
+const PRESETS = {
+  1: [
+    { shape: 'diamond', resolution: 98,  size: 200, offset: 0,   alpha: 1     },
+    { shape: 'circle',  resolution: 20,  size: 19,  offset: 0,   alpha: 1     }
+  ],
+  2: [
+    { shape: 'diamond', resolution: 14,  size: 27,  offset: 15,  alpha: 0.991 },
+    { shape: 'circle',  resolution: 50,  size: 48,  offset: 0,   alpha: 0.651 },
+    { shape: 'circle',  resolution: 50,  size: 23,  offset: 8,   alpha: 0.5   },
+    { shape: 'circle',  resolution: 50,  size: 11,  offset: 8,   alpha: 0.441 }
+  ],
+  3: [
+    { shape: 'diamond', resolution: 200, size: 10,  offset: 5,   alpha: 0.8   },
+    { shape: 'diamond', resolution: 70,  size: 80,  offset: 15,  alpha: 0.1   },
+    { shape: 'diamond', resolution: 112, size: 40,  offset: 15,  alpha: 0.3   },
+    { shape: 'diamond', resolution: 50,  size: 20,  offset: 10,  alpha: 0.3   },
+    { shape: 'diamond', resolution: 32,  size: 103, offset: 0,   alpha: 0.041 }
+  ],
+  4: [
+    { shape: 'circle',  resolution: 32,  size: 180, offset: 0,   alpha: 0.241 },
+    { shape: 'diamond', resolution: 8,   size: 10,  offset: 0,   alpha: 0.391 },
+    { shape: 'circle',  resolution: 52,  size: 30,  offset: 0,   alpha: 0.261 },
+    { shape: 'circle',  resolution: 40,  size: 15,  offset: 0,   alpha: 0.471 }
+  ],
+  5: [
+    { shape: 'square',  resolution: 32,  size: 4,   offset: 0,   alpha: 1     },
+    { shape: 'square',  resolution: 32,  size: 30,  offset: 0,   alpha: 0.5   },
+    { shape: 'diamond', resolution: 32,  size: 90,  offset: 0,   alpha: 0.1   }
+  ],
+  6: [
+    { shape: 'circle',  resolution: 8,   size: 50,  offset: 0,   alpha: 0.741 },
+    { shape: 'diamond', resolution: 10,  size: 13,  offset: 13,  alpha: 0.611 },
+    { shape: 'circle',  resolution: 62,  size: 73,  offset: 0,   alpha: 0.301 }
+  ],
+  7: [
+    { shape: 'square',  resolution: 86,  size: 83,  offset: 0,   alpha: 0.001 },
+    { shape: 'diamond', resolution: 200, size: 200, offset: 0,   alpha: 0.161 },
+    { shape: 'circle',  resolution: 8,   size: 6,   offset: 8,   alpha: 1     }
+  ],
+  8: [
+    { shape: 'diamond', resolution: 32,  size: 28,  offset: 0,   alpha: 0.501 },
+    { shape: 'diamond', resolution: 194, size: 194, offset: 100, alpha: 0.551 },
+    { shape: 'diamond', resolution: 32,  size: 14,  offset: 0,   alpha: 0.5   },
+    { shape: 'circle',  resolution: 32,  size: 20,  offset: 16,  alpha: 0.821 },
+    { shape: 'circle',  resolution: 32,  size: 7,   offset: 0,   alpha: 1     }
+  ]
 };
 
+// ── Main application ─────────────────────────────────────────────────────────
 
-// see: http://www.benjaminkeen.com/?p=344
-var $Q = {
-    // each index should be an array with two indexes, both functions:
-    // 0: the code to execute
-    // 1: boolean test to determine completion
-    queue: [],
-    run: function() {
-		"use strict";
-        if (!$Q.queue.length) {
-            return;
-        }
-        // if this code hasn't begun being executed, start 'er up
-        if (!$Q.queue[0][2]) {
-            $Q.queue[0][0]();
-            $Q.queue[0][2] = window.setInterval(function() { $Q.process(); }, 50);
-        }
-    },
+const pixelator = {
+  canvas:      null,
+  ctx:         null,
+  canvasWidth:  0,
+  canvasHeight: 0,
+  numLayers:    0,
+  currViewMode: 'pixelate',
+  animationRAF: null,
+  animating:    false,
 
-    process: function() {
-		"use strict";
-        if ($Q.queue[0][1]()) {
-            window.clearInterval($Q.queue[0][2]);
-            $Q.queue.shift();
-            $Q.run();
-        }
+  init() {
+    // Canvas support check (replaces Modernizr)
+    if (!document.createElement('canvas').getContext) {
+      document.getElementById('dialog-no-canvas').showModal();
+      return;
     }
+
+    logoNS.init();
+    this._populateSwirlySource();
+    this._setupDialogs();
+    this._assignEventHandlers();
+    this._setupDragDrop();
+
+    this.currViewMode = document.querySelector('#view-mode [aria-selected="true"]').dataset.mode;
+
+    // Restore from shared URL if present
+    const imageParam = this._getParam('image');
+    if (imageParam) {
+      this._decodeURL();
+    } else {
+      this.loadPreset(1);
+      const urlParam = this._getParam('url');
+      if (urlParam) {
+        document.getElementById('image-url').value = urlParam;
+        document.getElementById('ir2').checked = true;
+        this.loadImage(urlParam);
+      } else {
+        this.loadImage();
+      }
+    }
+  },
+
+  // ── Dialogs ────────────────────────────────────────────────────────────────
+
+  _setupDialogs() {
+    // Close button
+    document.querySelectorAll('.dialog-close').forEach(btn => {
+      btn.addEventListener('click', () => btn.closest('dialog').close());
+    });
+    // Click outside dialog to close
+    document.querySelectorAll('dialog').forEach(dlg => {
+      dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+    });
+  },
+
+  _showError(msg) {
+    document.getElementById('error-message').textContent = msg;
+    document.getElementById('dialog-error').showModal();
+  },
+
+  // ── Event handlers ─────────────────────────────────────────────────────────
+
+  _assignEventHandlers() {
+    // Preset style buttons
+    document.getElementById('preset-style-list').addEventListener('click', e => {
+      const li = e.target.closest('li');
+      if (li) this.loadPreset(parseInt(li.textContent, 10), true);
+    });
+
+    // Example image dropdown
+    document.getElementById('preset-images').addEventListener('change', () => {
+      document.getElementById('ir1').checked = true;
+      this.loadImage();
+    });
+
+    // Image URL input — mark radio
+    document.getElementById('image-url').addEventListener('input', () => {
+      document.getElementById('ir2').checked = true;
+    });
+
+    // Load remote URL button
+    document.getElementById('load-remote-btn').addEventListener('click', () => {
+      const url = document.getElementById('image-url').value.trim();
+      if (!url) return;
+      document.getElementById('ir2').checked = true;
+      this.loadImage(url);
+    });
+    // Also allow Enter key in URL field
+    document.getElementById('image-url').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('load-remote-btn').click();
+    });
+
+    // File upload
+    document.getElementById('file-upload').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById('ir3').checked = true;
+      this._loadFile(file);
+    });
+
+    // Layer controls — handle input (sliders) and change (select/checkbox) together
+    const settingsEl = document.getElementById('settings');
+    const settingsHandler = e => {
+      // Update slider value display
+      if (e.target.type === 'range') {
+        const span = e.target.nextElementSibling;
+        if (span?.classList.contains('range-val')) span.textContent = e.target.value;
+      }
+      this.repixelate();
+    };
+    settingsEl.addEventListener('input',  settingsHandler);
+    settingsEl.addEventListener('change', settingsHandler);
+
+    // Delete layer button (delegated)
+    document.getElementById('setting-groups').addEventListener('click', e => {
+      const btn = e.target.closest('.delete-setting');
+      if (!btn) return;
+      btn.closest('.setting-group').remove();
+      this._resortLayers();
+      this.repixelate();
+    });
+
+    // Add layer
+    document.getElementById('add-layer-link').addEventListener('click', e => {
+      e.preventDefault();
+      this.addLayer();
+      this.repixelate();
+    });
+
+    // View mode tabs
+    document.getElementById('view-mode').addEventListener('click', e => {
+      const li = e.target.closest('li[data-mode]');
+      if (li) this._changeViewMode(li.dataset.mode);
+    });
+
+    // Header action buttons
+    document.getElementById('link-to-image').addEventListener('click', () => this._generateLink());
+    document.getElementById('generate-js').addEventListener('click',   () => this._generateJS());
+    document.getElementById('save-image').addEventListener('click',    () => this._saveImage());
+
+    // About dialog
+    document.getElementById('about-link').addEventListener('click', e => {
+      e.preventDefault();
+      const dlg = document.getElementById('dialog-about');
+      dlg.showModal();
+      swirlyNS.init();
+    });
+
+    // Toggle swirly source / canvas in about dialog
+    document.getElementById('toggle-about-source').addEventListener('click', () => {
+      const src    = document.getElementById('swirly-source');
+      const canvas = document.getElementById('about-canvas');
+      const btn    = document.getElementById('toggle-about-source');
+      const hidden = src.classList.contains('hidden');
+      src.classList.toggle('hidden', !hidden);
+      canvas.classList.toggle('hidden', hidden);
+      btn.textContent = hidden ? 'Back to Swirly' : 'View Swirly Source';
+    });
+
+    // Copy URL button
+    document.getElementById('copy-url-btn').addEventListener('click', () => {
+      const input = document.getElementById('share-url');
+      input.select();
+      navigator.clipboard?.writeText(input.value).then(() => {
+        const btn  = document.getElementById('copy-url-btn');
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }).catch(() => {
+        // Fallback: execCommand (already selected above)
+        document.execCommand('copy');
+      });
+    });
+  },
+
+  // ── Drag-and-drop layer reorder ────────────────────────────────────────────
+
+  _setupDragDrop() {
+    const container = document.getElementById('setting-groups');
+    let dragSrc = null;
+
+    container.addEventListener('dragstart', e => {
+      // Only start drag from the layer header (the grab handle)
+      if (!e.target.closest('.layer-header')) { e.preventDefault(); return; }
+      dragSrc = e.target.closest('.setting-group');
+      dragSrc.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', ''); // required for Firefox
+    });
+
+    container.addEventListener('dragend', () => {
+      container.querySelectorAll('.setting-group').forEach(g =>
+        g.classList.remove('dragging', 'drag-over')
+      );
+    });
+
+    container.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const target = e.target.closest('.setting-group');
+      if (target && target !== dragSrc) {
+        container.querySelectorAll('.setting-group').forEach(g => g.classList.remove('drag-over'));
+        target.classList.add('drag-over');
+      }
+    });
+
+    container.addEventListener('drop', e => {
+      e.preventDefault();
+      const target = e.target.closest('.setting-group');
+      if (!target || target === dragSrc) return;
+      const all    = [...container.querySelectorAll('.setting-group')];
+      const srcIdx = all.indexOf(dragSrc);
+      const tgtIdx = all.indexOf(target);
+      if (srcIdx < tgtIdx) target.after(dragSrc);
+      else                  target.before(dragSrc);
+      this._resortLayers();
+      this.repixelate();
+    });
+  },
+
+  // ── View modes ─────────────────────────────────────────────────────────────
+
+  _changeViewMode(newMode) {
+    if (newMode === this.currViewMode) return;
+    if (this.animating) this._stopAnimation();
+
+    // Update tab UI
+    document.querySelectorAll('#view-mode li').forEach(li => li.removeAttribute('aria-selected'));
+    document.querySelector(`#view-mode [data-mode="${newMode}"]`).setAttribute('aria-selected', 'true');
+    this.currViewMode = newMode;
+
+    if (newMode === 'animate') {
+      this._startAnimation();
+    } else {
+      // Both original and pixelate modes reload the image
+      if (newMode === 'original') this.canvas = null;
+      this._reloadCurrentImage();
+    }
+  },
+
+  _reloadCurrentImage() {
+    const source = document.querySelector('input[name="ir"]:checked').value;
+    if (source === 'image_url') {
+      const url = document.getElementById('image-url').value.trim();
+      if (url) this.loadImage(url);
+    } else if (source === 'upload') {
+      // Can't re-read file after page load; current canvas is preserved
+    } else {
+      this.loadImage();
+    }
+  },
+
+  // ── Image loading ──────────────────────────────────────────────────────────
+
+  loadImage(customUrl) {
+    const url       = customUrl || ('example_images/' + document.getElementById('preset-images').value);
+    const container = document.getElementById('image-container');
+
+    ClosePixelate.clearImageData();
+    this.canvas = null;
+
+    if (this.currViewMode === 'original') {
+      // Just show the <img> tag without pixelating
+      container.innerHTML = '';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      container.appendChild(img);
+      return;
+    }
+
+    ClosePixelate.loadImage(url, container)
+      .then(({ canvas, ctx, width, height }) => {
+        this.canvas      = canvas;
+        this.ctx         = ctx;
+        this.canvasWidth  = width;
+        this.canvasHeight = height;
+        this.repixelate();
+      })
+      .catch(err => this._showError(err.message));
+  },
+
+  _loadFile(file) {
+    const container = document.getElementById('image-container');
+    ClosePixelate.clearImageData();
+    this.canvas = null;
+
+    ClosePixelate.loadImage(file, container)
+      .then(({ canvas, ctx, width, height }) => {
+        this.canvas       = canvas;
+        this.ctx          = ctx;
+        this.canvasWidth  = width;
+        this.canvasHeight = height;
+        this.repixelate();
+      })
+      .catch(err => this._showError(err.message));
+  },
+
+  // ── Pixelation ─────────────────────────────────────────────────────────────
+
+  repixelate() {
+    if (this.currViewMode === 'original' || !this.canvas) return;
+    ClosePixelate.renderClosePixels(this.ctx, this._getSettings(), this.canvasWidth, this.canvasHeight);
+  },
+
+  _getSettings() {
+    const settings = [];
+    document.querySelectorAll('#setting-groups .setting-group').forEach(group => {
+      if (!group.querySelector('.enabled').checked) return;
+      settings.push({
+        shape:      group.querySelector('.shape').value,
+        resolution: parseInt(group.querySelector('.resolution').value, 10),
+        offset:     parseInt(group.querySelector('.offset').value,     10),
+        size:       parseInt(group.querySelector('.size').value,        10),
+        alpha:      parseFloat(group.querySelector('.alpha').value)
+      });
+    });
+    return settings;
+  },
+
+  // ── Layer management ───────────────────────────────────────────────────────
+
+  addLayer(defaults = {}) {
+    const data = Object.assign(
+      { shape: 'circle', resolution: 32, offset: 0, size: 30, alpha: 0.5 },
+      defaults
+    );
+
+    const tmpl     = document.getElementById('layer-template');
+    const fragment = tmpl.content.cloneNode(true);
+    const layerNum = ++this.numLayers;
+    const uid      = `enable-layer-${layerNum}`;
+
+    const cbx = fragment.querySelector('.enabled');
+    cbx.id    = uid;
+
+    const lbl = fragment.querySelector('.enabled-label');
+    lbl.setAttribute('for', uid);
+    lbl.textContent = `Enable Layer ${layerNum}`;
+
+    fragment.querySelector('.shape').value      = data.shape;
+    fragment.querySelector('.resolution').value = data.resolution;
+    fragment.querySelector('.offset').value     = data.offset;
+    fragment.querySelector('.size').value       = data.size;
+    fragment.querySelector('.alpha').value      = data.alpha;
+
+    // Populate value displays
+    fragment.querySelectorAll('.control-row').forEach(row => {
+      const range = row.querySelector('input[type="range"]');
+      const span  = row.querySelector('.range-val');
+      if (range && span) span.textContent = range.value;
+    });
+
+    document.getElementById('setting-groups').appendChild(fragment);
+    this._resortLayers();
+  },
+
+  _resortLayers() {
+    let n = 1;
+    document.querySelectorAll('.setting-group').forEach(group => {
+      group.querySelector('.enabled-label').textContent = `Enable Layer ${n++}`;
+    });
+  },
+
+  loadPreset(num, repixelate = false) {
+    document.getElementById('setting-groups').innerHTML = '';
+    this.numLayers = 0;
+    (PRESETS[num] || PRESETS[1]).forEach(s => this.addLayer(s));
+
+    // Highlight selected preset button
+    document.querySelectorAll('#preset-style-list li').forEach(li => li.classList.remove('selected'));
+    const li = document.querySelector(`#preset-style-list li:nth-child(${num})`);
+    if (li) li.classList.add('selected');
+
+    if (repixelate && this.canvas) {
+      ClosePixelate.renderClosePixels(this.ctx, this._getSettings(), this.canvasWidth, this.canvasHeight);
+    }
+  },
+
+  // ── Share / Export ─────────────────────────────────────────────────────────
+
+  _saveImage() {
+    if (!this.canvas) return;
+    const a      = document.createElement('a');
+    a.href       = this.canvas.toDataURL('image/png');
+    a.download   = 'pixelated.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
+  _generateLink() {
+    const settings = this._getSettings();
+    const layers   = settings.map(s =>
+      `shape:${s.shape},size:${s.size},resolution:${s.resolution},alpha:${s.alpha},offset:${s.offset}`
+    ).join('|');
+
+    const imageType = document.querySelector('input[name="ir"]:checked').value;
+    const image     = imageType === 'examples'
+      ? document.getElementById('preset-images').value
+      : document.getElementById('image-url').value;
+
+    const url = new URL(window.location.href.split('?')[0]);
+    url.searchParams.set('image_type', imageType);
+    url.searchParams.set('image',      image);
+    if (layers) url.searchParams.set('layers', layers);
+
+    document.getElementById('share-url').value = url.toString();
+    document.getElementById('dialog-link').showModal();
+    document.getElementById('share-url').select();
+  },
+
+  _decodeURL() {
+    const imageType = this._getParam('image_type');
+    const image     = this._getParam('image');
+    const layersStr = this._getParam('layers');
+
+    if (imageType === 'examples') {
+      document.getElementById('ir1').checked = true;
+      document.getElementById('preset-images').value = image;
+    } else {
+      document.getElementById('ir2').checked = true;
+      document.getElementById('image-url').value = image;
+    }
+
+    if (layersStr) {
+      document.getElementById('setting-groups').innerHTML = '';
+      this.numLayers = 0;
+      layersStr.split('|').forEach(layerStr => {
+        const setting = {};
+        layerStr.split(',').forEach(pair => {
+          const [k, v] = pair.split(':');
+          if      (k === 'shape')      setting.shape      = v;
+          else if (k === 'size')       setting.size       = parseInt(v,   10);
+          else if (k === 'resolution') setting.resolution = parseInt(v,   10);
+          else if (k === 'offset')     setting.offset     = parseInt(v,   10);
+          else if (k === 'alpha')      setting.alpha      = parseFloat(v);
+        });
+        this.addLayer(setting);
+      });
+    } else {
+      this.loadPreset(1);
+    }
+
+    if (imageType === 'examples') this.loadImage();
+    else                          this.loadImage(image);
+  },
+
+  _generateJS() {
+    const settings = this._getSettings();
+    const rows     = settings.map(s =>
+      `  { shape: '${s.shape}', resolution: ${s.resolution}, size: ${s.size}, offset: ${s.offset}, alpha: ${s.alpha} }`
+    );
+    document.getElementById('js-output').value = `[\n${rows.join(',\n')}\n]`;
+    document.getElementById('dialog-generate-js').showModal();
+  },
+
+  // ── Animation ──────────────────────────────────────────────────────────────
+
+  _startAnimation() {
+    this._stopAnimation();
+    const sliders   = [...document.querySelectorAll('input.animatable')];
+    const animData  = sliders.map(el => ({
+      el,
+      speed:     Math.floor(Math.random() * 30) + 20, // 20–50 frames between steps
+      direction: Math.random() > 0.5 ? 1 : -1,
+      value:     parseFloat(el.value),
+      min:       parseFloat(el.min),
+      max:       parseFloat(el.max),
+      step:      parseFloat(el.step) || 1
+    }));
+
+    const animBtn = document.querySelector('#view-mode [data-mode="animate"]');
+    if (animBtn) animBtn.textContent = 'Stop Animation';
+
+    let frame = 0;
+    this.animating = true;
+
+    const tick = () => {
+      if (!this.animating) return;
+      frame++;
+
+      animData.forEach(d => {
+        if (frame % d.speed !== 0) return;
+        d.value += d.direction * d.step;
+        if (d.value >= d.max) { d.value = d.max; d.direction = -1; }
+        if (d.value <= d.min) { d.value = d.min; d.direction =  1; }
+        d.el.value = d.value;
+        // Update display span
+        const span = d.el.nextElementSibling;
+        if (span?.classList.contains('range-val')) span.textContent = d.value.toFixed(d.step < 1 ? 2 : 0);
+      });
+
+      this.repixelate();
+      this.animationRAF = requestAnimationFrame(tick);
+    };
+
+    this.animationRAF = requestAnimationFrame(tick);
+  },
+
+  _stopAnimation() {
+    this.animating = false;
+    if (this.animationRAF) {
+      cancelAnimationFrame(this.animationRAF);
+      this.animationRAF = null;
+    }
+    const btn = document.querySelector('#view-mode [data-mode="animate"]');
+    if (btn) btn.textContent = 'Start Animation';
+  },
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  _getParam(name) {
+    return new URLSearchParams(window.location.search).get(name) || '';
+  },
+
+  _populateSwirlySource() {
+    const ta = document.getElementById('swirly-source');
+    if (!ta) return;
+    ta.value = `<!DOCTYPE html>
+<html>
+<head>
+  <title>A Swirly</title>
+  <script>
+  var ns = {
+    ctx: null, interval: null, circle_size: 4, count: 0,
+    init: function() {
+      ns.ctx = document.getElementById('canvas').getContext('2d');
+      ns.ctx.translate(225, 225);
+      ns.interval = setInterval(function() { ns.draw(); }, 5);
+    },
+    draw: function() {
+      ns.ctx.rotate(Math.PI * 2 / 80);
+      ns.ctx.fillStyle = 'rgb(0,' + Math.ceil(ns.count * 1.02) + ',' + Math.ceil(ns.count * 1.6) + ')';
+      ns.ctx.beginPath();
+      ns.ctx.arc(ns.count / 2, ns.count / 3, ns.circle_size, 0, Math.PI * 2);
+      ns.ctx.fill();
+      ns.count += 0.2;
+      ns.circle_size -= 0.002;
+      if (ns.circle_size <= 0.01) clearInterval(ns.interval);
+    }
+  };
+  <\/script>
+</head>
+<body onload="ns.init()">
+  <canvas id="canvas" width="450" height="450"></canvas>
+</body>
+</html>`;
+  }
 };
+
+document.addEventListener('DOMContentLoaded', () => pixelator.init());
