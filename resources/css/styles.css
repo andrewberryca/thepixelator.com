@@ -399,5 +399,78 @@ button.dialog-close:hover { background-color: #aaa; }
 }
 #swirly-source { height: 300px; font-family: monospace; font-size: 11px; }
 
+/* ── Recovery panel ──────────────────────────────────────────────────────── */
+#recovery-panel { margin-top: 14px; }
+
+.recovery-note {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: #fffbe6;
+  border-left: 3px solid #e8b400;
+  border-radius: 4px;
+  font: var(--font);
+  color: var(--color-text);
+}
+
+.recovery-methods {
+  display:   flex;
+  gap:       10px;
+  align-items: flex-start;
+}
+
+.recovery-card {
+  flex:             1;
+  min-width:        0;
+  background:       var(--color-layer-bg);
+  border-radius:    8px;
+  padding:          12px;
+  display:          flex;
+  flex-direction:   column;
+  gap:              6px;
+}
+.recovery-card h3 {
+  margin:      0;
+  font-size:   11px;
+  font-weight: bold;
+  color:       var(--color-text);
+}
+.recovery-card p { margin: 0; font: var(--font); color: var(--color-text); }
+.recovery-meta   { color: var(--color-text-dim) !important; font-style: italic; }
+.recovery-tf-note { color: var(--color-text-dim) !important; }
+
+.recovery-card-controls { font: var(--font); }
+.recovery-card-controls select { font: var(--font); }
+
+.btn-recover {
+  margin-top:       auto;
+  padding:          4px 10px;
+  background-color: var(--color-accent);
+  color:            white;
+  border:           none;
+  border-radius:    var(--radius);
+  cursor:           pointer;
+  font:             var(--font);
+  align-self:       flex-start;
+  white-space:      nowrap;
+}
+.btn-recover:hover    { background-color: var(--color-accent-hover); }
+.btn-recover:disabled { opacity: 0.55; cursor: default; }
+
+#recovery-output { margin-top: 14px; }
+
+.recovery-output-header {
+  display:     flex;
+  align-items: center;
+  gap:         12px;
+  margin-bottom: 8px;
+  font:        var(--font);
+}
+#recovery-status {
+  color:       var(--color-text-dim);
+  font-style:  italic;
+}
+#recovery-canvas { display: block; max-width: 100%; }
+.recovery-actions { margin-top: 8px; }
+
 /* ── Utilities ───────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }

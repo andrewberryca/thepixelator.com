@@ -6,7 +6,7 @@
   <title>The Pixelator</title>
   <link rel="stylesheet" href="resources/css/styles.css" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob: data:; connect-src 'self';" />
+    content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' https: blob: data:; connect-src 'self';" />
 </head>
 <body>
 
@@ -53,6 +53,7 @@
         <li role="tab" data-mode="original">Original Image</li>
         <li role="tab" data-mode="pixelate" aria-selected="true">Pixelated Image</li>
         <li role="tab" data-mode="animate">Start Animation</li>
+        <li role="tab" data-mode="recover">Recover Image</li>
       </ul>
 
       <!-- Examples -->
@@ -111,6 +112,70 @@
 
       <div class="spacer"></div>
       <div id="image-container"></div>
+
+      <!-- ── Recovery panel (shown when Recover Image tab is active) ───────── -->
+      <div id="recovery-panel" class="hidden">
+        <p class="recovery-note">
+          <strong>True pixel recovery is mathematically impossible</strong> —
+          each method uses a different approximation strategy.
+          Results depend on image content, block size, and layer settings.
+        </p>
+        <div class="recovery-methods">
+
+          <div class="recovery-card">
+            <h3>A &mdash; Reverse Layers</h3>
+            <p>Maps each pixel sampled by Close-Pixelate back to its source
+            coordinate using the <em>current layer settings</em>, then bilinear-interpolates
+            the gaps. Only works for images pixelated by this app.</p>
+            <p class="recovery-meta">Coverage: exact at ~1/N&sup2; pixels per layer; interpolated elsewhere.</p>
+            <button type="button" class="btn-recover" id="recover-btn-a">Reconstruct &raquo;</button>
+          </div>
+
+          <div class="recovery-card">
+            <h3>B &mdash; Blind Grid Detection</h3>
+            <p>Detects the pixel block size automatically via autocorrelation,
+            extracts block colours, then reconstructs with bilinear interpolation
+            and unsharp masking. Works on <em>any uniformly pixelated image</em>.</p>
+            <p class="recovery-meta">Accuracy: approximate — depends on grid regularity.</p>
+            <div class="recovery-card-controls">
+              <label>Grid hint:
+                <select id="grid-hint">
+                  <option value="auto">Auto-detect</option>
+                  <option value="8">8 px</option>
+                  <option value="16">16 px</option>
+                  <option value="32">32 px</option>
+                  <option value="64">64 px</option>
+                </select>
+              </label>
+            </div>
+            <button type="button" class="btn-recover" id="recover-btn-b">Detect &amp; Recover &raquo;</button>
+          </div>
+
+          <div class="recovery-card">
+            <h3>C &mdash; AI Enhancement</h3>
+            <p>Loads <a href="https://www.tensorflow.org/js" target="_blank" rel="noopener noreferrer">TensorFlow.js</a>
+            and runs a convolutional pipeline (Gaussian smoothing blended with the
+            original) to suppress block artefacts. <em>Hallucinates plausible
+            detail — not mathematical recovery.</em></p>
+            <p class="recovery-meta">Quality: visually improved, not exact. Works on any image.</p>
+            <p class="recovery-tf-note">Loads ~1 MB on first use (requires internet).</p>
+            <button type="button" class="btn-recover" id="recover-btn-c">Enhance with AI &raquo;</button>
+          </div>
+
+        </div><!-- /.recovery-methods -->
+
+        <div id="recovery-output" class="hidden">
+          <div class="recovery-output-header">
+            <strong>Recovered Image</strong>
+            <span id="recovery-status"></span>
+          </div>
+          <canvas id="recovery-canvas"></canvas>
+          <div class="recovery-actions">
+            <button type="button" id="save-recovery-btn" class="btn-primary">Download Recovered Image</button>
+          </div>
+        </div>
+
+      </div><!-- /#recovery-panel -->
     </div>
   </main>
 

@@ -144,6 +144,7 @@ const pixelator = {
     this._setupDialogs();
     this._assignEventHandlers();
     this._setupDragDrop();
+    this._initRecovery();
 
     this.currViewMode = document.querySelector('#view-mode [aria-selected="true"]').dataset.mode;
 
@@ -364,6 +365,14 @@ const pixelator = {
     document.querySelectorAll('#view-mode li').forEach(li => li.removeAttribute('aria-selected'));
     document.querySelector(`#view-mode [data-mode="${newMode}"]`).setAttribute('aria-selected', 'true');
     this.currViewMode = newMode;
+
+    // Show/hide recovery panel
+    document.getElementById('recovery-panel').classList.toggle('hidden', newMode !== 'recover');
+
+    if (newMode === 'recover') {
+      // Keep the current canvas visible as the source for recovery
+      return;
+    }
 
     if (newMode === 'animate') {
       this._startAnimation();
@@ -664,6 +673,338 @@ const pixelator = {
     }
     const btn = document.querySelector('#view-mode [data-mode="animate"]');
     if (btn) btn.textContent = 'Start Animation';
+  },
+
+  // ── Image Recovery (Experimental) ──────────────────────────────────────────
+
+  _initRecovery() {
+    document.getElementById('recover-btn-a').addEventListener('click', () => this._recoverMethodA());
+    document.getElementById('recover-btn-b').addEventListener('click', () => this._recoverMethodB());
+    document.getElementById('recover-btn-c').addEventListener('click', () => this._recoverMethodC());
+    document.getElementById('save-recovery-btn').addEventListener('click', () => this._saveRecoveredImage());
+  },
+
+  _getSourcePixels() {
+    const canvas = document.getElementById('image');
+    if (!canvas) return null;
+    const ctx  = canvas.getContext('2d');
+    return { canvas, ctx, w: canvas.width, h: canvas.height,
+             data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
+  },
+
+  _setRecoveryStatus(msg, isError = false) {
+    const el = document.getElementById('recovery-status');
+    el.textContent = msg;
+    el.style.color = isError ? 'var(--color-danger)' : '';
+  },
+
+  _showRecoveryResult(srcCanvas) {
+    const output = document.getElementById('recovery-output');
+    output.classList.remove('hidden');
+    const dst = document.getElementById('recovery-canvas');
+    dst.width  = srcCanvas.width;
+    dst.height = srcCanvas.height;
+    dst.getContext('2d').drawImage(srcCanvas, 0, 0);
+  },
+
+  _saveRecoveredImage() {
+    const canvas = document.getElementById('recovery-canvas');
+    if (!canvas.width) return;
+    const a    = document.createElement('a');
+    a.href     = canvas.toDataURL('image/png');
+    a.download = 'recovered.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
+  // ── Method A: Reverse Close-Pixelate layers ─────────────────────────────────
+
+  _recoverMethodA() {
+    const src = this._getSourcePixels();
+    if (!src) { this._showError('Load and pixelate an image first (use the Pixelated Image tab).'); return; }
+
+    const settings = this._getSettings();
+    if (!settings.length) { this._showError('No active layers to reverse.'); return; }
+
+    const { data: pixels, w, h } = src;
+
+    // Collect all grid-centre sample points from every active layer.
+    // Key = py*w+px (the original image coordinate sampled by Close-Pixelate).
+    const samples = new Map();
+    for (const layer of settings) {
+      const { resolution: res, offset, alpha } = layer;
+      const cols = Math.ceil(w / res) + 1;
+      const rows = Math.ceil(h / res) + 1;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x  = (col - 0.5) * res + offset;
+          const y  = (row - 0.5) * res + offset;
+          const px = Math.max(0, Math.min(w - 1, Math.round(x)));
+          const py = Math.max(0, Math.min(h - 1, Math.round(y)));
+          const key = py * w + px;
+          if (samples.has(key)) continue;
+          const idx = (px + py * w) * 4;
+          // Read from pixelated canvas; approximate alpha un-compositing for single layers
+          const scale = alpha < 1 ? 1 / alpha : 1;
+          samples.set(key, {
+            r: Math.min(255, Math.round(pixels[idx]     * scale)),
+            g: Math.min(255, Math.round(pixels[idx + 1] * scale)),
+            b: Math.min(255, Math.round(pixels[idx + 2] * scale)),
+          });
+        }
+      }
+    }
+
+    // Bilinear interpolation using the primary (first) layer's grid as the framework.
+    const { resolution: res, offset: off } = settings[0];
+
+    const getGridSample = (col, row) => {
+      const gx = Math.max(0, Math.min(w - 1, Math.round((col - 0.5) * res + off)));
+      const gy = Math.max(0, Math.min(h - 1, Math.round((row - 0.5) * res + off)));
+      return samples.get(gy * w + gx) || null;
+    };
+
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let py = 0; py < h; py++) {
+      for (let px = 0; px < w; px++) {
+        const idx = (px + py * w) * 4;
+        const key = py * w + px;
+
+        if (samples.has(key)) {
+          const s = samples.get(key);
+          out[idx] = s.r; out[idx + 1] = s.g; out[idx + 2] = s.b; out[idx + 3] = 255;
+          continue;
+        }
+
+        const fcol = (px - off) / res + 0.5;
+        const frow = (py - off) / res + 0.5;
+        const c0 = Math.floor(fcol), c1 = c0 + 1;
+        const r0 = Math.floor(frow), r1 = r0 + 1;
+        const tx = fcol - c0, ty = frow - r0;
+
+        const c00 = getGridSample(c0, r0), c10 = getGridSample(c1, r0);
+        const c01 = getGridSample(c0, r1), c11 = getGridSample(c1, r1);
+        const fb  = c00 || c10 || c01 || c11 || { r: 128, g: 128, b: 128 };
+        const a00 = c00 || fb, a10 = c10 || fb, a01 = c01 || fb, a11 = c11 || fb;
+
+        out[idx]     = Math.round(a00.r*(1-tx)*(1-ty) + a10.r*tx*(1-ty) + a01.r*(1-tx)*ty + a11.r*tx*ty);
+        out[idx + 1] = Math.round(a00.g*(1-tx)*(1-ty) + a10.g*tx*(1-ty) + a01.g*(1-tx)*ty + a11.g*tx*ty);
+        out[idx + 2] = Math.round(a00.b*(1-tx)*(1-ty) + a10.b*tx*(1-ty) + a01.b*(1-tx)*ty + a11.b*tx*ty);
+        out[idx + 3] = 255;
+      }
+    }
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = w; outCanvas.height = h;
+    outCanvas.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
+    this._showRecoveryResult(outCanvas);
+
+    const pct = ((samples.size / (w * h)) * 100).toFixed(1);
+    this._setRecoveryStatus(
+      `Done. ${samples.size.toLocaleString()} pixels recovered exactly (${pct}% of image); rest interpolated.`
+    );
+  },
+
+  // ── Method B: Blind grid detection ──────────────────────────────────────────
+
+  _recoverMethodB() {
+    const src = this._getSourcePixels();
+    if (!src) { this._showError('Load an image first.'); return; }
+
+    const { data: pixels, w, h } = src;
+
+    const hintEl   = document.getElementById('grid-hint');
+    const gridSize = hintEl.value === 'auto'
+      ? this._detectGridSize(pixels, w, h)
+      : parseInt(hintEl.value, 10);
+
+    this._setRecoveryStatus(`Grid: ${gridSize} px. Reconstructing…`);
+
+    const bCols = Math.ceil(w / gridSize);
+    const bRows = Math.ceil(h / gridSize);
+
+    // Sample the centre pixel of each block as its representative colour.
+    const blockColors = new Array(bRows * bCols);
+    for (let br = 0; br < bRows; br++) {
+      for (let bc = 0; bc < bCols; bc++) {
+        const cx  = Math.min(w - 1, Math.round(bc * gridSize + gridSize / 2));
+        const cy  = Math.min(h - 1, Math.round(br * gridSize + gridSize / 2));
+        const idx = (cx + cy * w) * 4;
+        blockColors[br * bCols + bc] = { r: pixels[idx], g: pixels[idx + 1], b: pixels[idx + 2] };
+      }
+    }
+
+    const getBlock = (bc, br) => {
+      const c = Math.max(0, Math.min(bCols - 1, bc));
+      const r = Math.max(0, Math.min(bRows - 1, br));
+      return blockColors[r * bCols + c];
+    };
+
+    // Bilinear interpolation between block centres.
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let py = 0; py < h; py++) {
+      for (let px = 0; px < w; px++) {
+        const fcol = px / gridSize - 0.5;
+        const frow = py / gridSize - 0.5;
+        const bc0  = Math.floor(fcol), bc1 = bc0 + 1;
+        const br0  = Math.floor(frow), br1 = br0 + 1;
+        const tx   = fcol - bc0, ty = frow - br0;
+
+        const c00 = getBlock(bc0, br0), c10 = getBlock(bc1, br0);
+        const c01 = getBlock(bc0, br1), c11 = getBlock(bc1, br1);
+        const idx = (px + py * w) * 4;
+        out[idx]     = Math.round(c00.r*(1-tx)*(1-ty) + c10.r*tx*(1-ty) + c01.r*(1-tx)*ty + c11.r*tx*ty);
+        out[idx + 1] = Math.round(c00.g*(1-tx)*(1-ty) + c10.g*tx*(1-ty) + c01.g*(1-tx)*ty + c11.g*tx*ty);
+        out[idx + 2] = Math.round(c00.b*(1-tx)*(1-ty) + c10.b*tx*(1-ty) + c01.b*(1-tx)*ty + c11.b*tx*ty);
+        out[idx + 3] = 255;
+      }
+    }
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = w; outCanvas.height = h;
+    const outCtx = outCanvas.getContext('2d');
+    outCtx.putImageData(new ImageData(out, w, h), 0, 0);
+
+    // Unsharp mask on the interpolated result to recover perceived sharpness.
+    this._applyUnsharpMask(outCtx, w, h, 0.6);
+
+    this._showRecoveryResult(outCanvas);
+    this._setRecoveryStatus(`Done. Detected grid size: ${gridSize} px.`);
+  },
+
+  _detectGridSize(pixels, w, h) {
+    // Build a column-difference signal averaged over a sample of rows.
+    const sampleRows = Math.min(h, 40);
+    const rowStep    = Math.max(1, Math.floor(h / sampleRows));
+    const hDiff      = new Float64Array(w);
+    for (let y = rowStep; y < h; y += rowStep) {
+      for (let x = 1; x < w; x++) {
+        const i1 = (x - 1 + y * w) * 4;
+        const i2 = (x     + y * w) * 4;
+        hDiff[x] += Math.abs(pixels[i1]     - pixels[i2])
+                 +  Math.abs(pixels[i1 + 1] - pixels[i2 + 1])
+                 +  Math.abs(pixels[i1 + 2] - pixels[i2 + 2]);
+      }
+    }
+
+    // Score each candidate grid size: mean diff at boundaries vs. interior.
+    const maxGrid = Math.min(128, Math.floor(Math.min(w, h) / 3));
+    let bestSize = 8, bestScore = -Infinity;
+    for (let s = 2; s <= maxGrid; s++) {
+      let sumB = 0, cntB = 0, sumI = 0, cntI = 0;
+      for (let x = 1; x < w; x++) {
+        if (x % s === 0) { sumB += hDiff[x]; cntB++; }
+        else             { sumI += hDiff[x]; cntI++; }
+      }
+      const score = (cntB ? sumB / cntB : 0) - (cntI ? sumI / cntI : 0);
+      if (score > bestScore) { bestScore = score; bestSize = s; }
+    }
+    return bestSize;
+  },
+
+  _applyUnsharpMask(ctx, w, h, amount) {
+    const src     = ctx.getImageData(0, 0, w, h);
+    const s       = src.data;
+    const blurred = new Float32Array(s.length);
+
+    // 3×3 box blur
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        for (let c = 0; c < 3; c++) {
+          blurred[(x + y * w) * 4 + c] = (
+            s[((x-1) + (y-1) * w) * 4 + c] + s[(x + (y-1) * w) * 4 + c] + s[((x+1) + (y-1) * w) * 4 + c] +
+            s[((x-1) +  y    * w) * 4 + c] + s[(x +  y    * w) * 4 + c] + s[((x+1) +  y    * w) * 4 + c] +
+            s[((x-1) + (y+1) * w) * 4 + c] + s[(x + (y+1) * w) * 4 + c] + s[((x+1) + (y+1) * w) * 4 + c]
+          ) / 9;
+        }
+      }
+    }
+
+    const dst = ctx.createImageData(w, h);
+    const d   = dst.data;
+    for (let i = 0; i < s.length; i += 4) {
+      d[i]     = Math.max(0, Math.min(255, s[i]     + amount * (s[i]     - blurred[i])));
+      d[i + 1] = Math.max(0, Math.min(255, s[i + 1] + amount * (s[i + 1] - blurred[i + 1])));
+      d[i + 2] = Math.max(0, Math.min(255, s[i + 2] + amount * (s[i + 2] - blurred[i + 2])));
+      d[i + 3] = s[i + 3];
+    }
+    ctx.putImageData(dst, 0, 0);
+  },
+
+  // ── Method C: TensorFlow.js convolutional enhancement ───────────────────────
+
+  async _recoverMethodC() {
+    const src = this._getSourcePixels();
+    if (!src) { this._showError('Load an image first.'); return; }
+
+    const btn = document.getElementById('recover-btn-c');
+    btn.disabled = true;
+    this._setRecoveryStatus('Loading TensorFlow.js…');
+
+    if (!window.tf) {
+      try {
+        await new Promise((resolve, reject) => {
+          const script  = document.createElement('script');
+          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('Failed to load TensorFlow.js. Check your internet connection.'));
+          document.head.appendChild(script);
+        });
+      } catch (err) {
+        this._showError(err.message);
+        this._setRecoveryStatus('Failed to load TensorFlow.js.', true);
+        btn.disabled = false;
+        return;
+      }
+    }
+
+    this._setRecoveryStatus('Running convolutional enhancement…');
+
+    try {
+      const { canvas: srcCanvas, w, h } = src;
+
+      await tf.ready();
+
+      // 5×5 Gaussian kernel (Pascal triangle approximation, σ≈1.0, sums to 1).
+      const gaussBase = [1,4,6,4,1, 4,16,24,16,4, 6,24,36,24,6, 4,16,24,16,4, 1,4,6,4,1]
+        .map(v => v / 256);
+      // depthwiseConv2d filter shape: [kH, kW, inChannels, channelMultiplier]
+      // Flatten as [k0_ch0, k0_ch1, k0_ch2, k1_ch0, ...] (last axis varies fastest)
+      const gaussKernel = tf.tensor4d(gaussBase.flatMap(v => [v, v, v]), [5, 5, 3, 1]);
+
+      const result = tf.tidy(() => {
+        // [h, w, 3] float32 in [0, 1]
+        const img   = tf.browser.fromPixels(srcCanvas).toFloat().div(255);
+        const batch = img.expandDims(0); // [1, h, w, 3]
+
+        // Pass 1: moderate Gaussian blur — softens hard block edges
+        const blurred = tf.depthwiseConv2d(batch, gaussKernel, 1, 'same');
+
+        // Pass 2: stronger blur (apply kernel again to already-blurred result)
+        const blurred2 = tf.depthwiseConv2d(blurred, gaussKernel, 1, 'same');
+
+        // Mix: blend two blurred passes + subtle pull toward original for colour fidelity
+        // blurred captures structure, blurred2 is very smooth, original has block artefacts
+        const enhanced = blurred.mul(0.6).add(blurred2.mul(0.25)).add(batch.mul(0.15));
+
+        return enhanced.clipByValue(0, 1).squeeze(); // [h, w, 3]
+      });
+
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = w; outCanvas.height = h;
+      await tf.browser.toPixels(result, outCanvas);
+      result.dispose();
+      gaussKernel.dispose();
+
+      this._showRecoveryResult(outCanvas);
+      this._setRecoveryStatus('Done. Convolutional smoothing applied via TensorFlow.js.');
+    } catch (err) {
+      this._showError('TensorFlow.js error: ' + err.message);
+      this._setRecoveryStatus('Enhancement failed.', true);
+    }
+
+    btn.disabled = false;
   },
 
   // ── Utilities ──────────────────────────────────────────────────────────────
