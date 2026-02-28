@@ -413,26 +413,37 @@ button.dialog-close:hover { background-color: #aaa; }
 }
 
 .recovery-methods {
-  display:   flex;
-  gap:       10px;
-  align-items: flex-start;
+  display:        flex;
+  flex-direction: column;
+  gap:            10px;
 }
 
 .recovery-card {
-  flex:             1;
-  min-width:        0;
-  background:       var(--color-layer-bg);
-  border-radius:    8px;
-  padding:          12px;
-  display:          flex;
-  flex-direction:   column;
-  gap:              6px;
+  background:     var(--color-layer-bg);
+  border-radius:  8px;
+  padding:        12px;
+  display:        flex;
+  flex-direction: row;
+  gap:            12px;
+  align-items:    flex-start;
 }
+
+/* Label column on the left, content on the right */
 .recovery-card h3 {
-  margin:      0;
-  font-size:   11px;
-  font-weight: bold;
-  color:       var(--color-text);
+  flex-shrink:  0;
+  width:        160px;
+  margin:       2px 0 0;
+  font-size:    11px;
+  font-weight:  bold;
+  color:        var(--color-text);
+}
+
+.recovery-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .recovery-card p { margin: 0; font: var(--font); color: var(--color-text); }
 .recovery-meta   { color: var(--color-text-dim) !important; font-style: italic; }
