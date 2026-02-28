@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>The Pixelator</title>
   <link rel="stylesheet" href="resources/css/styles.css" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob: data:; connect-src 'self';" />
 </head>
 <body>
 
@@ -14,7 +16,7 @@
       <h1>The Pixelator</h1>
       <p class="tagline">
         An experiment to provide interaction to David DeSandro's excellent
-        <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a> library.
+        <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener noreferrer">Close-Pixelate</a> library.
       </p>
     </div>
     <nav class="header-nav" aria-label="Actions">
@@ -113,22 +115,22 @@
   </main>
 
   <footer>
-    <a href="https://github.com/andrewberryca/thepixelator.com" class="fork-link" target="_blank" rel="noopener">
+    <a href="https://github.com/andrewberryca/thepixelator.com" class="fork-link" target="_blank" rel="noopener noreferrer">
       <img src="resources/images/fork.gif" alt="Fork on GitHub" />
     </a>
     <nav aria-label="Scripts">
       <h2>Scripts used on this site</h2>
       <ul>
-        <li><a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a></li>
-        <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API" target="_blank" rel="noopener">Canvas API</a></li>
+        <li><a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener noreferrer">Close-Pixelate</a></li>
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API" target="_blank" rel="noopener noreferrer">Canvas API</a></li>
       </ul>
     </nav>
     <nav aria-label="Links">
       <h2>Other links</h2>
       <ul>
         <li><a href="#" id="about-link">About this site</a></li>
-        <li><a href="https://developer.mozilla.org/en/canvas_tutorial" target="_blank" rel="noopener">Canvas tutorial</a></li>
-        <li><a href="https://diveintohtml5.info/canvas.html" target="_blank" rel="noopener">Dive into HTML5: Canvas</a></li>
+        <li><a href="https://developer.mozilla.org/en/canvas_tutorial" target="_blank" rel="noopener noreferrer">Canvas tutorial</a></li>
+        <li><a href="https://diveintohtml5.info/canvas.html" target="_blank" rel="noopener noreferrer">Dive into HTML5: Canvas</a></li>
       </ul>
     </nav>
   </footer>
@@ -159,7 +161,7 @@
     <h2 id="dlg-js-title">Close-Pixelate JS</h2>
     <p>
       Paste this into your own page with the
-      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a>
+      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener noreferrer">Close-Pixelate</a>
       library to recreate your current design.
     </p>
     <textarea id="js-output" readonly></textarea>
@@ -182,10 +184,10 @@
       <em>The Pixelator</em> is really nothing more than an excuse to play around with Canvas,
       an HTML5 technology for creating images on the fly with JavaScript. A co-worker sent me a link
       to DeSandro's amazing
-      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener">Close-Pixelate</a>
+      <a href="https://github.com/desandro/close-pixelate" target="_blank" rel="noopener noreferrer">Close-Pixelate</a>
       script — so all I really did was slap on a UI.
     </p>
-    <p>&#8212; <a href="https://www.benjaminkeen.com" target="_blank" rel="noopener">Ben</a></p>
+    <p>&#8212; <a href="https://www.benjaminkeen.com" target="_blank" rel="noopener noreferrer">Ben</a></p>
     <canvas id="about-canvas" width="620" height="270"></canvas>
     <button type="button" id="toggle-about-source" class="toggle-btn">View Swirly Source</button>
     <textarea id="swirly-source" class="hidden" readonly></textarea>

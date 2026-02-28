@@ -214,10 +214,22 @@ const pixelator = {
       if (e.key === 'Enter') document.getElementById('load-remote-btn').click();
     });
 
-    // File upload
+    // File upload — validate MIME type and size before processing
     document.getElementById('file-upload').addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
+      const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp'];
+      const MAX_BYTES      = 50 * 1024 * 1024; // 50 MB
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        this._showError(`Unsupported file type "${file.type}". Please choose a PNG, JPEG, GIF, WebP, or BMP image.`);
+        e.target.value = '';
+        return;
+      }
+      if (file.size > MAX_BYTES) {
+        this._showError('File is too large (max 50 MB). Please choose a smaller image.');
+        e.target.value = '';
+        return;
+      }
       document.getElementById('ir3').checked = true;
       this._loadFile(file);
     });
@@ -536,14 +548,31 @@ const pixelator = {
   },
 
   _decodeURL() {
+    const VALID_IMAGE_TYPES = ['examples', 'image_url'];
+    const VALID_SHAPES      = ['circle', 'square', 'diamond'];
+
     const imageType = this._getParam('image_type');
     const image     = this._getParam('image');
     const layersStr = this._getParam('layers');
+
+    // Reject unknown image_type values
+    if (!VALID_IMAGE_TYPES.includes(imageType)) {
+      this.loadPreset(1);
+      this.loadImage();
+      return;
+    }
 
     if (imageType === 'examples') {
       document.getElementById('ir1').checked = true;
       document.getElementById('preset-images').value = image;
     } else {
+      // Block dangerous URL schemes (javascript:, data:, vbscript:, etc.)
+      const scheme = image.split(':')[0].toLowerCase();
+      if (['javascript', 'data', 'vbscript', 'file'].includes(scheme)) {
+        this.loadPreset(1);
+        this.loadImage();
+        return;
+      }
       document.getElementById('ir2').checked = true;
       document.getElementById('image-url').value = image;
     }
@@ -554,12 +583,16 @@ const pixelator = {
       layersStr.split('|').forEach(layerStr => {
         const setting = {};
         layerStr.split(',').forEach(pair => {
-          const [k, v] = pair.split(':');
-          if      (k === 'shape')      setting.shape      = v;
-          else if (k === 'size')       setting.size       = parseInt(v,   10);
-          else if (k === 'resolution') setting.resolution = parseInt(v,   10);
-          else if (k === 'offset')     setting.offset     = parseInt(v,   10);
-          else if (k === 'alpha')      setting.alpha      = parseFloat(v);
+          const colonIdx = pair.indexOf(':');
+          if (colonIdx === -1) return;
+          const k = pair.slice(0, colonIdx);
+          const v = pair.slice(colonIdx + 1);
+          // Explicit key whitelist — ignore anything else (blocks __proto__, constructor, etc.)
+          if      (k === 'shape'      && VALID_SHAPES.includes(v)) setting.shape      = v;
+          else if (k === 'size')       setting.size       = Math.max(2,   Math.min(200,  parseInt(v,   10) || 30));
+          else if (k === 'resolution') setting.resolution = Math.max(8,   Math.min(200,  parseInt(v,   10) || 32));
+          else if (k === 'offset')     setting.offset     = Math.max(0,   Math.min(100,  parseInt(v,   10) || 0));
+          else if (k === 'alpha')      setting.alpha      = Math.max(0.001, Math.min(1,  parseFloat(v) || 0.5));
         });
         this.addLayer(setting);
       });
