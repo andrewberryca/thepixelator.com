@@ -946,7 +946,7 @@ const pixelator = {
       try {
         await new Promise((resolve, reject) => {
           const script  = document.createElement('script');
-          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
+          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4/dist/tf.min.js';
           script.onload = resolve;
           script.onerror = () => reject(new Error('Failed to load TensorFlow.js. Check your internet connection.'));
           document.head.appendChild(script);
@@ -963,8 +963,6 @@ const pixelator = {
 
     try {
       const { canvas: srcCanvas, w, h } = src;
-
-      await tf.ready();
 
       // 5×5 Gaussian kernel (Pascal triangle approximation, σ≈1.0, sums to 1).
       const gaussBase = [1,4,6,4,1, 4,16,24,16,4, 6,24,36,24,6, 4,16,24,16,4, 1,4,6,4,1]
