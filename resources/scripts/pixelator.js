@@ -932,7 +932,7 @@ const pixelator = {
     ctx.putImageData(dst, 0, 0);
   },
 
-  // ── Method C: TensorFlow.js convolutional enhancement ───────────────────────
+  // ── Method C: Convolutional enhancement (TF.js CPU → Canvas API fallback) ────
 
   async _recoverMethodC() {
     const src = this._getSourcePixels();
@@ -940,83 +940,93 @@ const pixelator = {
 
     const btn = document.getElementById('recover-btn-c');
     btn.disabled = true;
-    this._setRecoveryStatus('Loading TensorFlow.js…');
 
-    // Load TF.js if not already loaded with a working API.
-    // We validate tf.tensor and tf.depthwiseConv2d exist — a stale/broken
-    // version from a previous attempt may have left window.tf partially set.
-    const tfReady = () => window.tf &&
-                          typeof window.tf.tensor === 'function' &&
-                          typeof window.tf.depthwiseConv2d === 'function';
+    const { canvas: srcCanvas, w, h } = src;
 
-    if (!tfReady()) {
-      window.tf = undefined; // discard any broken prior load
-      try {
-        await new Promise((resolve, reject) => {
-          const script  = document.createElement('script');
-          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js';
-          script.onload = resolve;
-          script.onerror = () => reject(new Error('Failed to load TensorFlow.js. Check your internet connection.'));
-          document.head.appendChild(script);
-        });
-      } catch (err) {
-        this._showError(err.message);
-        this._setRecoveryStatus('Failed to load TensorFlow.js.', true);
-        btn.disabled = false;
-        return;
-      }
+    // Try TF.js (core + CPU backend — no WebGL, no unsafe-eval needed).
+    // If anything fails, fall back to native Canvas API (same algorithm).
+    const tfOk = () => window.tf &&
+                       typeof window.tf.tensor === 'function' &&
+                       typeof window.tf.depthwiseConv2d === 'function';
 
-      if (!tfReady()) {
-        this._showError('TensorFlow.js loaded but required functions are missing. Try refreshing the page.');
-        this._setRecoveryStatus('TensorFlow.js incompatible.', true);
-        btn.disabled = false;
-        return;
-      }
-    }
+    if (!tfOk()) {
+      window.tf = undefined;
+      this._setRecoveryStatus('Loading TensorFlow.js…');
 
-    this._setRecoveryStatus('Running convolutional enhancement…');
-
-    try {
-      const { canvas: srcCanvas, w, h } = src;
-
-      // 5×5 Gaussian kernel (Pascal triangle approximation, σ≈1.0, sums to 1).
-      const gaussBase = [1,4,6,4,1, 4,16,24,16,4, 6,24,36,24,6, 4,16,24,16,4, 1,4,6,4,1]
-        .map(v => v / 256);
-      // depthwiseConv2d filter shape: [kH, kW, inChannels, channelMultiplier]
-      // Flatten as [k0_ch0, k0_ch1, k0_ch2, k1_ch0, ...] (last axis varies fastest)
-      const gaussKernel = tf.tensor(gaussBase.flatMap(v => [v, v, v]), [5, 5, 3, 1]);
-
-      const result = tf.tidy(() => {
-        // [h, w, 3] float32 in [0, 1]
-        const img   = tf.browser.fromPixels(srcCanvas).toFloat().div(255);
-        const batch = img.expandDims(0); // [1, h, w, 3]
-
-        // Pass 1: moderate Gaussian blur — softens hard block edges
-        const blurred = tf.depthwiseConv2d(batch, gaussKernel, 1, 'same');
-
-        // Pass 2: stronger blur (apply kernel again to already-blurred result)
-        const blurred2 = tf.depthwiseConv2d(blurred, gaussKernel, 1, 'same');
-
-        // Mix: blend two blurred passes + subtle pull toward original for colour fidelity
-        // blurred captures structure, blurred2 is very smooth, original has block artefacts
-        const enhanced = blurred.mul(0.6).add(blurred2.mul(0.25)).add(batch.mul(0.15));
-
-        return enhanced.clipByValue(0, 1).squeeze(); // [h, w, 3]
+      const loadScript = url => new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
       });
 
-      const outCanvas = document.createElement('canvas');
-      outCanvas.width = w; outCanvas.height = h;
-      await tf.browser.toPixels(result, outCanvas);
-      result.dispose();
-      gaussKernel.dispose();
-
-      this._showRecoveryResult(outCanvas);
-      this._setRecoveryStatus('Done. Convolutional smoothing applied via TensorFlow.js.');
-    } catch (err) {
-      this._showError('TensorFlow.js error: ' + err.message);
-      this._setRecoveryStatus('Enhancement failed.', true);
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3.21.0/dist/tf-core.min.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu@3.21.0/dist/tf-backend-cpu.min.js');
+        if (tfOk()) await tf.setBackend('cpu');
+      } catch (_) { /* fall through to Canvas fallback */ }
     }
 
+    if (tfOk()) {
+      this._setRecoveryStatus('Running TF.js convolutional enhancement…');
+      try {
+        const gaussBase   = [1,4,6,4,1, 4,16,24,16,4, 6,24,36,24,6, 4,16,24,16,4, 1,4,6,4,1]
+          .map(v => v / 256);
+        const gaussKernel = tf.tensor(gaussBase.flatMap(v => [v, v, v]), [5, 5, 3, 1]);
+
+        const result = tf.tidy(() => {
+          const img     = tf.browser.fromPixels(srcCanvas).toFloat().div(255);
+          const batch   = img.expandDims(0);
+          const blur1   = tf.depthwiseConv2d(batch, gaussKernel, 1, 'same');
+          const blur2   = tf.depthwiseConv2d(blur1,  gaussKernel, 1, 'same');
+          const enhanced = blur1.mul(0.6).add(blur2.mul(0.25)).add(batch.mul(0.15));
+          return enhanced.clipByValue(0, 1).squeeze();
+        });
+
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = w; outCanvas.height = h;
+        await tf.browser.toPixels(result, outCanvas);
+        result.dispose();
+        gaussKernel.dispose();
+
+        this._showRecoveryResult(outCanvas);
+        this._setRecoveryStatus('Done. Gaussian convolution via TensorFlow.js (CPU).');
+        btn.disabled = false;
+        return;
+      } catch (_) { /* fall through to Canvas fallback */ }
+    }
+
+    // Canvas API fallback — identical algorithm using ctx.filter blur.
+    this._setRecoveryStatus('Running canvas convolution enhancement…');
+    const blurCanvas = (source, radius) => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.filter = `blur(${radius}px)`;
+      ctx.drawImage(source, 0, 0);
+      return c;
+    };
+
+    const b1  = blurCanvas(srcCanvas, 2);
+    const b2  = blurCanvas(b1, 2);
+    const d0  = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+    const d1  = b1.getContext('2d').getImageData(0, 0, w, h).data;
+    const d2  = b2.getContext('2d').getImageData(0, 0, w, h).data;
+    const out = new Uint8ClampedArray(w * h * 4);
+
+    for (let i = 0; i < out.length; i += 4) {
+      out[i]     = Math.round(0.60 * d1[i]     + 0.25 * d2[i]     + 0.15 * d0[i]);
+      out[i + 1] = Math.round(0.60 * d1[i + 1] + 0.25 * d2[i + 1] + 0.15 * d0[i + 1]);
+      out[i + 2] = Math.round(0.60 * d1[i + 2] + 0.25 * d2[i + 2] + 0.15 * d0[i + 2]);
+      out[i + 3] = 255;
+    }
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = w; outCanvas.height = h;
+    outCanvas.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
+    this._showRecoveryResult(outCanvas);
+    this._setRecoveryStatus('Done. Gaussian convolution via native Canvas API.');
     btn.disabled = false;
   },
 
