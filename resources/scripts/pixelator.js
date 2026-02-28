@@ -942,7 +942,15 @@ const pixelator = {
     btn.disabled = true;
     this._setRecoveryStatus('Loading TensorFlow.js…');
 
-    if (!window.tf) {
+    // Load TF.js if not already loaded with a working API.
+    // We validate tf.tensor and tf.depthwiseConv2d exist — a stale/broken
+    // version from a previous attempt may have left window.tf partially set.
+    const tfReady = () => window.tf &&
+                          typeof window.tf.tensor === 'function' &&
+                          typeof window.tf.depthwiseConv2d === 'function';
+
+    if (!tfReady()) {
+      window.tf = undefined; // discard any broken prior load
       try {
         await new Promise((resolve, reject) => {
           const script  = document.createElement('script');
@@ -954,6 +962,13 @@ const pixelator = {
       } catch (err) {
         this._showError(err.message);
         this._setRecoveryStatus('Failed to load TensorFlow.js.', true);
+        btn.disabled = false;
+        return;
+      }
+
+      if (!tfReady()) {
+        this._showError('TensorFlow.js loaded but required functions are missing. Try refreshing the page.');
+        this._setRecoveryStatus('TensorFlow.js incompatible.', true);
         btn.disabled = false;
         return;
       }
