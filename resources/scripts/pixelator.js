@@ -946,7 +946,7 @@ const pixelator = {
       try {
         await new Promise((resolve, reject) => {
           const script  = document.createElement('script');
-          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4/dist/tf.min.js';
+          script.src    = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js';
           script.onload = resolve;
           script.onerror = () => reject(new Error('Failed to load TensorFlow.js. Check your internet connection.'));
           document.head.appendChild(script);
@@ -969,7 +969,7 @@ const pixelator = {
         .map(v => v / 256);
       // depthwiseConv2d filter shape: [kH, kW, inChannels, channelMultiplier]
       // Flatten as [k0_ch0, k0_ch1, k0_ch2, k1_ch0, ...] (last axis varies fastest)
-      const gaussKernel = tf.tensor4d(gaussBase.flatMap(v => [v, v, v]), [5, 5, 3, 1]);
+      const gaussKernel = tf.tensor(gaussBase.flatMap(v => [v, v, v]), [5, 5, 3, 1]);
 
       const result = tf.tidy(() => {
         // [h, w, 3] float32 in [0, 1]
